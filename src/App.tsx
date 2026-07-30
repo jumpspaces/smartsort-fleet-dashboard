@@ -2,10 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getDevices,
   getErrors,
+  getShops,
   login,
+  provisionShop,
+  reissueClaimCode,
+  revokeStoreKey,
   Unauthorized,
   type DeviceRow,
   type ErrorRow,
+  type ProvisionResult,
+  type ShopRow,
 } from './api.ts'
 
 const LS_API = 'fleet_api'
@@ -110,6 +116,7 @@ function Dashboard({
   token: string
   onLogout: () => void
 }) {
+  const [view, setView] = useState<'terminals' | 'shops'>('terminals')
   const [devices, setDevices] = useState<DeviceRow[]>([])
   const [errors, setErrors] = useState<ErrorRow[]>([])
   const [selected, setSelected] = useState<DeviceRow | null>(null)
@@ -157,6 +164,20 @@ function Dashboard({
         <div className="brand">
           <span className="dot" /> SmartSort Fleet
         </div>
+        <nav className="tabs">
+          <button
+            onClick={() => setView('terminals')}
+            aria-current={view === 'terminals' ? 'page' : undefined}
+          >
+            Terminals
+          </button>
+          <button
+            onClick={() => setView('shops')}
+            aria-current={view === 'shops' ? 'page' : undefined}
+          >
+            Shops
+          </button>
+        </nav>
         <div className="topbar-right">
           <span className="muted">{apiBase}</span>
           {updatedAt && <span className="muted">· updated {timeAgo(updatedAt.toISOString())}</span>}
@@ -171,6 +192,45 @@ function Dashboard({
 
       {loadError && <div className="error-banner page-error">{loadError}</div>}
 
+      {view === 'shops' ? (
+        <Shops apiBase={apiBase} token={token} onUnauthorized={onLogout} />
+      ) : (
+        <Terminals
+          devices={devices}
+          stats={stats}
+          errorsByDevice={errorsByDevice}
+          onSelect={setSelected}
+        />
+      )}
+
+      {selected && (
+        <DeviceDrawer
+          apiBase={apiBase}
+          token={token}
+          device={selected}
+          onClose={() => setSelected(null)}
+          onUnauthorized={onLogout}
+        />
+      )}
+    </div>
+  )
+}
+
+/* --------------------------------------------------------------- terminals */
+
+function Terminals({
+  devices,
+  stats,
+  errorsByDevice,
+  onSelect,
+}: {
+  devices: DeviceRow[]
+  stats: { total: number; online: number; offline: number; erroring: number; backedUp: number }
+  errorsByDevice: Map<string, number>
+  onSelect: (d: DeviceRow) => void
+}) {
+  return (
+    <>
       <section className="tiles">
         <Tile label="Terminals" value={stats.total} />
         <Tile label="Online" value={stats.online} tone="good" />
@@ -206,7 +266,7 @@ function Dashboard({
               {devices.map((d) => {
                 const errCount = errorsByDevice.get(d.deviceId) ?? 0
                 return (
-                  <tr key={d.deviceId} onClick={() => setSelected(d)} className="row-click">
+                  <tr key={d.deviceId} onClick={() => onSelect(d)} className="row-click">
                     <td>
                       <span className={`badge ${d.online ? 'badge-good' : 'badge-bad'}`}>
                         {d.online ? 'online' : 'offline'}
@@ -235,17 +295,7 @@ function Dashboard({
           </table>
         </div>
       </section>
-
-      {selected && (
-        <DeviceDrawer
-          apiBase={apiBase}
-          token={token}
-          device={selected}
-          onClose={() => setSelected(null)}
-          onUnauthorized={onLogout}
-        />
-      )}
-    </div>
+    </>
   )
 }
 
@@ -254,6 +304,425 @@ function Tile({ label, value, tone }: { label: string; value: number; tone?: str
     <div className={`tile tile-${tone ?? 'default'}`}>
       <div className="tile-value">{value}</div>
       <div className="tile-label">{label}</div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------- shops */
+
+/**
+ * Shop onboarding (WS3). Provisioning mints a one-time claim code that the shop
+ * redeems on its desktop; the owner sets their own password there, so nothing
+ * here ever knows a live shop credential.
+ */
+function Shops({
+  apiBase,
+  token,
+  onUnauthorized,
+}: {
+  apiBase: string
+  token: string
+  onUnauthorized: () => void
+}) {
+  const [shops, setShops] = useState<ShopRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [result, setResult] = useState<(ProvisionResult & { shopName: string }) | null>(null)
+  const [selected, setSelected] = useState<ShopRow | null>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      const { shops } = await getShops(apiBase, token)
+      setShops(shops)
+      setError(null)
+      // Keep an open drawer in sync with what the server now says.
+      setSelected((cur) => (cur ? (shops.find((s) => s.id === cur.id) ?? null) : null))
+    } catch (err) {
+      if (err instanceof Unauthorized) return onUnauthorized()
+      setError(err instanceof Error ? err.message : 'Failed to load shops')
+    }
+  }, [apiBase, token, onUnauthorized])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const onProvisioned = useCallback(
+    (r: ProvisionResult & { shopName: string }) => {
+      setResult(r)
+      setFormOpen(false)
+      void refresh()
+    },
+    [refresh],
+  )
+
+  return (
+    <>
+      <section className="card">
+        <div className="card-head-row">
+          <span>Shops</span>
+          <button onClick={() => setFormOpen((v) => !v)} aria-expanded={formOpen}>
+            {formOpen ? 'Cancel' : 'Onboard a shop'}
+          </button>
+        </div>
+
+        {formOpen && (
+          <OnboardForm apiBase={apiBase} token={token} onDone={onProvisioned} onUnauthorized={onUnauthorized} />
+        )}
+
+        {result && <ClaimCodePanel result={result} onDismiss={() => setResult(null)} />}
+
+        {error && <div className="error-banner page-error">{error}</div>}
+
+        {shops == null ? (
+          <ShopsSkeleton />
+        ) : shops.length === 0 ? (
+          <div className="empty">
+            <div className="empty-title">No shops yet</div>
+            Onboard one to mint its claim code — the shop enters that code on its
+            desktop to connect the machine and set the owner's password.
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Shop</th>
+                  <th>Owner</th>
+                  <th>Machines</th>
+                  <th>Claim code</th>
+                  <th>Onboarded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shops.map((s) => (
+                  <tr key={s.id} className="row-click" onClick={() => setSelected(s)}>
+                    <td>
+                      <span className={`badge ${s.activated ? 'badge-good' : 'badge-warn'}`}>
+                        {s.activated ? 'active' : 'pending'}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="shop-name">{s.name}</div>
+                      <div className="muted tiny">{s.location ?? '—'}</div>
+                    </td>
+                    <td>
+                      <div>{s.owner?.name ?? '—'}</div>
+                      <div className="muted mono tiny">{s.owner?.staffId ?? ''}</div>
+                    </td>
+                    <td>
+                      <div className="stack-cell">
+                        {s.machines.length === 0 && <span className="muted">none</span>}
+                        {s.machines.map((m) => (
+                          <span
+                            key={m.keyId}
+                            className={`term-chip${m.revokedAt ? ' revoked' : ''}`}
+                            title={m.machineName ?? m.machineId}
+                          >
+                            {m.terminalCode}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>{claimCell(s)}</td>
+                    <td className="muted">{timeAgo(s.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {selected && (
+        <ShopDrawer
+          apiBase={apiBase}
+          token={token}
+          shop={selected}
+          onClose={() => setSelected(null)}
+          onChanged={refresh}
+          onUnauthorized={onUnauthorized}
+          onReissued={(r) => setResult({ ...r, shopId: selected.id, ownerId: '', shopName: selected.name })}
+        />
+      )}
+    </>
+  )
+}
+
+function claimCell(s: ShopRow) {
+  // An active shop needs no code — later machines connect with the owner's sign-in.
+  if (s.activated) return <span className="muted">—</span>
+  if (s.hasLiveClaimCode && s.claimCodeExpiresAt) {
+    return <span className="muted">expires {timeUntil(s.claimCodeExpiresAt)}</span>
+  }
+  return <span className="badge badge-bad">expired</span>
+}
+
+function ShopsSkeleton() {
+  return (
+    <div style={{ padding: '16px' }}>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="skeleton" style={{ marginBottom: 14, width: `${88 - i * 12}%` }} />
+      ))}
+    </div>
+  )
+}
+
+function OnboardForm({
+  apiBase,
+  token,
+  onDone,
+  onUnauthorized,
+}: {
+  apiBase: string
+  token: string
+  onDone: (r: ProvisionResult & { shopName: string }) => void
+  onUnauthorized: () => void
+}) {
+  const [shopName, setShopName] = useState('')
+  const [location, setLocation] = useState('')
+  const [phone, setPhone] = useState('')
+  const [ownerName, setOwnerName] = useState('')
+  const [staffId, setStaffId] = useState('owner')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await provisionShop(apiBase, token, {
+        shopName: shopName.trim(),
+        location: location.trim() || undefined,
+        phone: phone.trim() || undefined,
+        ownerName: ownerName.trim(),
+        staffId: staffId.trim(),
+      })
+      onDone({ ...r, shopName: shopName.trim() })
+    } catch (err) {
+      if (err instanceof Unauthorized) return onUnauthorized()
+      setError(err instanceof Error ? err.message : 'Could not onboard this shop')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="onboard-form" onSubmit={submit}>
+      <label>
+        Shop name
+        <input value={shopName} onChange={(e) => setShopName(e.target.value)} required autoFocus />
+      </label>
+      <label>
+        Location
+        <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Kumasi" />
+      </label>
+      <label>
+        Phone
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="024…" />
+      </label>
+      <label>
+        Owner's name
+        <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} required />
+      </label>
+      <label>
+        Owner's login ID
+        <input value={staffId} onChange={(e) => setStaffId(e.target.value)} required />
+        <span className="field-hint">What the owner types to sign in, here and in the mobile app.</span>
+      </label>
+      {error && <div className="error-banner">{error}</div>}
+      <div className="form-actions">
+        <button type="submit" disabled={busy}>
+          {busy ? 'Onboarding…' : 'Onboard shop'}
+        </button>
+        <span className="field-hint">
+          No password is set here — the owner chooses their own when they connect the machine.
+        </span>
+      </div>
+    </form>
+  )
+}
+
+/** Shown once, right after provisioning or re-issue. */
+function ClaimCodePanel({
+  result,
+  onDismiss,
+}: {
+  result: ProvisionResult & { shopName: string }
+  onDismiss: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(result.claimCode)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="claim-result">
+      <div className="muted">
+        Claim code for <strong style={{ color: 'var(--text)' }}>{result.shopName}</strong>
+      </div>
+      <div className="claim-row">
+        <span className="claim-code">{result.claimCode}</span>
+        <button className="ghost" onClick={() => void copy()}>
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+        <button className="ghost" onClick={onDismiss}>
+          Done
+        </button>
+      </div>
+      <div className="field-hint">
+        Give this to the shop — they enter it on the desktop app to connect the
+        machine and set the owner's password. It works once, and expires{' '}
+        {timeUntil(result.expiresAt)}. You won't be able to see it again.
+      </div>
+    </div>
+  )
+}
+
+function ShopDrawer({
+  apiBase,
+  token,
+  shop,
+  onClose,
+  onChanged,
+  onUnauthorized,
+  onReissued,
+}: {
+  apiBase: string
+  token: string
+  shop: ShopRow
+  onClose: () => void
+  onChanged: () => void
+  onUnauthorized: () => void
+  onReissued: (r: { claimCode: string; expiresAt: string }) => void
+}) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
+
+  async function run(id: string, fn: () => Promise<unknown>) {
+    setBusy(id)
+    setError(null)
+    try {
+      await fn()
+      onChanged()
+    } catch (err) {
+      if (err instanceof Unauthorized) return onUnauthorized()
+      setError(err instanceof Error ? err.message : 'That action failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-head">
+          <div>
+            <div className="shop-name lg">{shop.name}</div>
+            <div className="muted tiny">{shop.location ?? 'No location set'}</div>
+          </div>
+          <button className="ghost" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        {error && <div className="error-banner page-error">{error}</div>}
+
+        <div className="kv-grid">
+          <KV k="Status" v={shop.activated ? 'Active' : 'Pending first connection'} />
+          <KV k="Owner" v={shop.owner?.name ?? '—'} />
+          <KV k="Owner login" v={shop.owner?.staffId ?? '—'} />
+          <KV k="Currency" v={shop.currency} />
+          <KV k="Phone" v={shop.phone ?? '—'} />
+          <KV k="Onboarded" v={timeAgo(shop.createdAt)} />
+        </div>
+
+        {!shop.activated && (
+          <div style={{ marginBottom: 22 }}>
+            <button
+              disabled={busy === 'code'}
+              onClick={() =>
+                void run('code', async () => {
+                  const r = await reissueClaimCode(apiBase, token, shop.id)
+                  onReissued(r)
+                  onClose()
+                })
+              }
+            >
+              {busy === 'code' ? 'Issuing…' : 'Issue a new claim code'}
+            </button>
+            <div className="field-hint" style={{ marginTop: 8 }}>
+              Use this when the shop lost the code or it expired. The previous code
+              stops working.
+            </div>
+          </div>
+        )}
+
+        <div className="card-head" style={{ padding: '0 0 10px', borderBottom: 'none' }}>
+          Machines
+        </div>
+        {shop.machines.length === 0 && (
+          <div className="muted">
+            No machine has connected yet. The shop connects one by entering its claim code.
+          </div>
+        )}
+        {shop.machines.map((m) => (
+          <div key={m.keyId} className="machine">
+            <div>
+              <div>
+                <span className={`term-chip${m.revokedAt ? ' revoked' : ''}`}>{m.terminalCode}</span>{' '}
+                <strong>{m.machineName ?? 'Unnamed machine'}</strong>
+              </div>
+              <div className="muted mono tiny">{m.keyPrefix}…</div>
+              <div className="muted tiny">
+                {m.revokedAt
+                  ? `Revoked ${timeAgo(m.revokedAt)}`
+                  : m.lastSeenAt
+                    ? `Last synced ${timeAgo(m.lastSeenAt)}`
+                    : 'Never synced'}
+              </div>
+            </div>
+            {!m.revokedAt &&
+              (confirming === m.keyId ? (
+                <div className="stack-cell">
+                  <button
+                    className="danger"
+                    disabled={busy === m.keyId}
+                    onClick={() =>
+                      void run(m.keyId, async () => {
+                        await revokeStoreKey(apiBase, token, m.keyId)
+                        setConfirming(null)
+                      })
+                    }
+                  >
+                    {busy === m.keyId ? 'Revoking…' : 'Confirm revoke'}
+                  </button>
+                  <button className="ghost" onClick={() => setConfirming(null)}>
+                    Keep
+                  </button>
+                </div>
+              ) : (
+                <button className="danger" onClick={() => setConfirming(m.keyId)}>
+                  Revoke
+                </button>
+              ))}
+          </div>
+        ))}
+        <div className="field-hint" style={{ marginTop: 12 }}>
+          Revoking stops a machine syncing. It keeps selling offline, and its data
+          is kept — reconnect it by claiming again with the owner's sign-in.
+        </div>
+      </aside>
     </div>
   )
 }
@@ -388,4 +857,10 @@ function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   if (diff < 0) return 'just now'
   return `${formatDuration(diff)} ago`
+}
+
+function timeUntil(iso: string): string {
+  const diff = new Date(iso).getTime() - Date.now()
+  if (diff <= 0) return 'now'
+  return `in ${formatDuration(diff)}`
 }

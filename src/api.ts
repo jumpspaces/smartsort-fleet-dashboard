@@ -40,6 +40,50 @@ export interface ErrorRow {
   lastSeen: string
 }
 
+/* ---- store onboarding (WS3): /api/stores/*, same admin bearer ---- */
+
+export interface ShopMachine {
+  keyId: string
+  machineId: string
+  machineName: string | null
+  terminalCode: string
+  keyPrefix: string
+  createdAt: string
+  lastSeenAt: string | null
+  revokedAt: string | null
+  lastReportAt: string | null
+}
+
+export interface ShopRow {
+  id: string
+  name: string
+  location: string | null
+  phone: string | null
+  currency: string
+  createdAt: string
+  owner: { id: string; name: string; staffId: string; active: boolean } | null
+  activated: boolean
+  hasLiveClaimCode: boolean
+  claimCodeExpiresAt: string | null
+  machines: ShopMachine[]
+}
+
+export interface ProvisionInput {
+  shopName: string
+  location?: string
+  phone?: string
+  currency?: string
+  ownerName: string
+  staffId: string
+}
+
+export interface ProvisionResult {
+  shopId: string
+  ownerId: string
+  claimCode: string
+  expiresAt: string
+}
+
 export class Unauthorized extends Error {}
 
 const trimBase = (base: string) => base.replace(/\/+$/, '')
@@ -77,4 +121,55 @@ export function getErrors(
 ): Promise<{ errors: ErrorRow[] }> {
   const q = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : ''
   return authedGet(apiBase, token, `/fleet/errors${q}`)
+}
+
+async function authedPost<T>(
+  apiBase: string,
+  token: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const res = await fetch(`${trimBase(apiBase)}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  })
+  if (res.status === 401) throw new Unauthorized('Session expired')
+  if (!res.ok) {
+    // Server errors carry { error, message } — surface the message when present.
+    const detail = (await res.json().catch(() => null)) as { message?: string } | null
+    throw new Error(detail?.message ?? `Request failed (HTTP ${res.status})`)
+  }
+  return res.json() as Promise<T>
+}
+
+export function getShops(apiBase: string, token: string): Promise<{ shops: ShopRow[] }> {
+  return authedGet(apiBase, token, '/api/stores')
+}
+
+export function provisionShop(
+  apiBase: string,
+  token: string,
+  input: ProvisionInput,
+): Promise<ProvisionResult> {
+  return authedPost(apiBase, token, '/api/stores/provision', input)
+}
+
+export function reissueClaimCode(
+  apiBase: string,
+  token: string,
+  shopId: string,
+): Promise<{ claimCode: string; expiresAt: string }> {
+  return authedPost(apiBase, token, `/api/stores/${shopId}/claim-code`)
+}
+
+export function revokeStoreKey(
+  apiBase: string,
+  token: string,
+  keyId: string,
+): Promise<{ ok: true }> {
+  return authedPost(apiBase, token, `/api/stores/keys/${keyId}/revoke`)
 }

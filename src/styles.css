@@ -125,6 +125,32 @@ button.ghost:hover {
   font-size: 13px;
 }
 
+/* --- section nav (Terminals / Shops) --- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+}
+.tabs button {
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 7px;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+.tabs button:hover:not([aria-current='page']) {
+  color: var(--text);
+}
+.tabs button[aria-current='page'] {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
 /* --- app shell --- */
 .app {
   max-width: 1200px;
@@ -253,6 +279,144 @@ tbody tr:last-child td {
 .badge-bad {
   background: var(--bad-bg);
   color: var(--bad);
+}
+
+/* --- onboarding (shops) --- */
+.card-head-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.onboard-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.onboard-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.onboard-form .form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.onboard-form .error-banner {
+  grid-column: 1 / -1;
+}
+.field-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The claim code is read aloud or written on an invoice, and shown exactly
+   once — so it gets the emphasis a one-time secret deserves. */
+.claim-result {
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.claim-code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  user-select: all;
+}
+.claim-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 6px 0 10px;
+}
+
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-title {
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.skeleton {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--panel-2), var(--border), var(--panel-2));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.stack-cell {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.term-chip {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.term-chip.revoked {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+button.danger {
+  background: transparent;
+  color: var(--bad);
+  border: 1px solid var(--bad);
+  font-weight: 600;
+  padding: 5px 11px;
+}
+button.danger:hover {
+  background: var(--bad-bg);
+}
+.machine {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* --- drawer --- */
