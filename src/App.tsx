@@ -389,6 +389,7 @@ function Shops({
                 <tr>
                   <th>Status</th>
                   <th>Shop</th>
+                  <th>Shop code</th>
                   <th>Owner</th>
                   <th>Machines</th>
                   <th>Claim code</th>
@@ -407,6 +408,7 @@ function Shops({
                       <div className="shop-name">{s.name}</div>
                       <div className="muted tiny">{s.location ?? '—'}</div>
                     </td>
+                    <td className="mono">{s.code ?? '—'}</td>
                     <td>
                       <div>{s.owner?.name ?? '—'}</div>
                       <div className="muted mono tiny">{s.owner?.staffId ?? ''}</div>
@@ -443,7 +445,15 @@ function Shops({
           onClose={() => setSelected(null)}
           onChanged={refresh}
           onUnauthorized={onUnauthorized}
-          onReissued={(r) => setResult({ ...r, shopId: selected.id, ownerId: '', shopName: selected.name })}
+          onReissued={(r) =>
+            setResult({
+              ...r,
+              shopId: selected.id,
+              shopCode: selected.code ?? '',
+              ownerId: '',
+              shopName: selected.name,
+            })
+          }
         />
       )}
     </>
@@ -584,6 +594,16 @@ function ClaimCodePanel({
         machine and set the owner's password. It works once, and expires{' '}
         {timeUntil(result.expiresAt)}. You won't be able to see it again.
       </div>
+      {result.shopCode && (
+        <div className="field-hint" style={{ marginTop: 10 }}>
+          Their <strong style={{ color: 'var(--text)' }}>shop code</strong> is{' '}
+          <span className="mono" style={{ color: 'var(--text)' }}>
+            {result.shopCode}
+          </span>{' '}
+          — the owner types this with their staff ID to sign in to the mobile app.
+          It doesn't expire, and it stays visible in this list.
+        </div>
+      )}
     </div>
   )
 }
@@ -640,6 +660,7 @@ function ShopDrawer({
 
         <div className="kv-grid">
           <KV k="Status" v={shop.activated ? 'Active' : 'Pending first connection'} />
+          <KV k="Shop code" v={shop.code ?? '—'} />
           <KV k="Owner" v={shop.owner?.name ?? '—'} />
           <KV k="Owner login" v={shop.owner?.staffId ?? '—'} />
           <KV k="Currency" v={shop.currency} />

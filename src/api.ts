@@ -57,6 +57,8 @@ export interface ShopMachine {
 export interface ShopRow {
   id: string
   name: string
+  /** Typed alongside the staff ID when signing in to the cloud. */
+  code: string | null
   location: string | null
   phone: string | null
   currency: string
@@ -79,6 +81,7 @@ export interface ProvisionInput {
 
 export interface ProvisionResult {
   shopId: string
+  shopCode: string
   ownerId: string
   claimCode: string
   expiresAt: string
