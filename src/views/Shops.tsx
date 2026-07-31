@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  getShops,
-  provisionShop,
   Unauthorized,
+  type Api,
   type ProvisionResult,
   type ShopRow,
 } from '../api.ts'
+import type { Navigate } from '../App.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { compare, PlainHeader, SortHeader, type Sort } from '../components/SortHeader.tsx'
 import {
@@ -27,15 +27,13 @@ type SortKey = 'status' | 'name' | 'code' | 'machines' | 'created'
 export type ClaimResult = ProvisionResult & { shopName: string }
 
 export function Shops({
-  apiBase,
-  token,
-  onUnauthorized,
-  onCount,
+  api,
+  reloadKey,
+  onNavigate,
 }: {
-  apiBase: string
-  token: string
-  onUnauthorized: () => void
-  onCount: (n: number) => void
+  api: Api
+  reloadKey: number
+  onNavigate: Navigate
 }) {
   const [shops, setShops] = useState<ShopRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -49,21 +47,22 @@ export function Shops({
 
   const refresh = useCallback(async () => {
     try {
-      const { shops } = await getShops(apiBase, token)
+      const shops = await api.shops()
       setShops(shops)
-      onCount(shops.length)
       setError(null)
       // Keep an open drawer in sync with what the server now says.
       setSelected((cur) => (cur ? (shops.find((s) => s.id === cur.id) ?? null) : null))
     } catch (err) {
-      if (err instanceof Unauthorized) return onUnauthorized()
+      // The API client already drops the session on an unrecoverable 401; this
+      // just avoids painting a scary message over a sign-in screen.
+      if (err instanceof Unauthorized) return
       setError(err instanceof Error ? err.message : 'Could not load shops')
     }
-  }, [apiBase, token, onUnauthorized, onCount])
+  }, [api])
 
   useEffect(() => {
     void refresh()
-  }, [refresh])
+  }, [refresh, reloadKey])
 
   const onProvisioned = useCallback(
     (r: ClaimResult) => {
@@ -128,11 +127,9 @@ export function Shops({
       <section className="panel">
         {formOpen && (
           <OnboardForm
-            apiBase={apiBase}
-            token={token}
+            api={api}
             onDone={onProvisioned}
             onCancel={() => setFormOpen(false)}
-            onUnauthorized={onUnauthorized}
           />
         )}
 
@@ -271,12 +268,12 @@ export function Shops({
 
       {selected && (
         <ShopDrawer
-          apiBase={apiBase}
-          token={token}
+          api={api}
           shop={selected}
           onClose={() => setSelected(null)}
           onChanged={refresh}
-          onUnauthorized={onUnauthorized}
+          onNavigate={onNavigate}
+          onUnauthorized={() => {}}
           onReissued={(r) => {
             setResult({
               ...r,
@@ -313,17 +310,13 @@ function claimCell(s: ShopRow) {
 /* -------------------------------------------------------------- onboarding */
 
 function OnboardForm({
-  apiBase,
-  token,
+  api,
   onDone,
   onCancel,
-  onUnauthorized,
 }: {
-  apiBase: string
-  token: string
+  api: Api
   onDone: (r: ClaimResult) => void
   onCancel: () => void
-  onUnauthorized: () => void
 }) {
   const [shopName, setShopName] = useState('')
   const [location, setLocation] = useState('')
@@ -338,7 +331,7 @@ function OnboardForm({
     setBusy(true)
     setError(null)
     try {
-      const r = await provisionShop(apiBase, token, {
+      const r = await api.provisionShop({
         shopName: shopName.trim(),
         location: location.trim() || undefined,
         phone: phone.trim() || undefined,
@@ -347,7 +340,7 @@ function OnboardForm({
       })
       onDone({ ...r, shopName: shopName.trim() })
     } catch (err) {
-      if (err instanceof Unauthorized) return onUnauthorized()
+      if (err instanceof Unauthorized) return
       setError(err instanceof Error ? err.message : 'Could not onboard this shop')
     } finally {
       setBusy(false)

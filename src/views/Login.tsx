@@ -1,16 +1,25 @@
 import { useState } from 'react'
-import { login } from '../api.ts'
+import { signIn, type Session } from '../api.ts'
 import { Mark } from '../components/Mark.tsx'
 import { Button, Notice } from '../components/ui.tsx'
 
+/**
+ * Operator sign-in.
+ *
+ * This used to take a single shared "admin password" that WAS the bearer token,
+ * stored forever. It now takes a named operator's own credentials and receives a
+ * session that expires, so access can be granted, revoked and attributed one
+ * person at a time — see the audit trail behind /fleet/audit.
+ */
 export function Login({
   apiBase,
-  onLogin,
+  onSignedIn,
 }: {
   apiBase: string
-  onLogin: (base: string, token: string) => void
+  onSignedIn: (session: Session) => void
 }) {
   const [base, setBase] = useState(apiBase)
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -20,8 +29,7 @@ export function Login({
     setBusy(true)
     setError(null)
     try {
-      const token = await login(base, password)
-      onLogin(base.replace(/\/+$/, ''), token)
+      onSignedIn(await signIn(base, email, password))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {
@@ -51,26 +59,45 @@ export function Login({
         </label>
 
         <label className="field">
-          <span>Admin password</span>
+          <span>Email</span>
+          <input
+            className="input"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoFocus
+            autoComplete="username"
+          />
+        </label>
+
+        <label className="field">
+          <span>Password</span>
           <input
             className="input"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            autoFocus
             autoComplete="current-password"
           />
         </label>
 
         {error && <Notice>{error}</Notice>}
 
-        <Button type="submit" variant="primary" className="btn-block" busy={busy} busyLabel="Signing in…">
+        <Button
+          type="submit"
+          variant="primary"
+          className="btn-block"
+          busy={busy}
+          busyLabel="Signing in…"
+        >
           Sign in
         </Button>
 
         <p className="login-foot">
-          This is the fleet admin secret, not a shop sign-in.
+          Your own JumpSpaces account, not a shop sign-in. Accounts are created on
+          the server with <code>npm run fleet:operator -- add</code>.
         </p>
       </form>
     </main>

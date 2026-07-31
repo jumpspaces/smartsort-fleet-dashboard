@@ -1,8 +1,49 @@
 /**
- * Thin client for the cloud droplet's /fleet/* endpoints. The base URL and the
- * admin bearer are supplied by the login screen and kept in localStorage; every
- * call carries the bearer, and a 401 bubbles up so the UI can drop the session.
+ * Client for the cloud droplet's fleet control plane.
+ *
+ * Sessions, not a stored password. Sign-in exchanges an operator's own
+ * credentials for a short access token (30 min) and a refresh token (one working
+ * day); every call carries the access token, and a 401 triggers exactly ONE
+ * refresh attempt before the UI drops to the sign-in screen. That single-flight
+ * refresh matters because the dashboard polls several endpoints at once — six
+ * parallel 401s must not become six refresh calls, five of which race and lose.
+ *
+ * Health is no longer computed here. The server returns `state` and `reasons`
+ * per device, because deciding them needs a time-windowed count of errors that
+ * are still open after triage — a database question. This file transports; it
+ * does not judge.
  */
+
+/* ------------------------------------------------------------------- types */
+
+export interface Operator {
+  id: string
+  email: string
+  name: string
+  role: 'admin' | 'operator' | 'viewer'
+}
+
+export interface Session {
+  apiBase: string
+  accessToken: string
+  refreshToken: string
+  operator: Operator
+}
+
+export type FleetState = 'healthy' | 'attention' | 'offline'
+
+export interface HealthReason {
+  code:
+    | 'offline'
+    | 'server_down'
+    | 'sync_failed'
+    | 'sync_stuck'
+    | 'sync_deep'
+    | 'errors_recent'
+    | 'unverified_key'
+  label: string
+  severity: 'critical' | 'warning'
+}
 
 export interface DeviceRow {
   deviceId: string
@@ -21,9 +62,33 @@ export interface DeviceRow {
   salesTodayCount: number | null
   salesTodayPesewas: number | null
   dbSizeBytes: number | null
+  /** False = reporting on the shared enrollment secret, identity unproven. */
+  keyVerified: boolean
   firstReportAt: string
   lastReportAt: string
+  /** Server-computed. */
+  state: FleetState
+  reasons: HealthReason[]
   online: boolean
+  recentOpenErrorGroups: number
+  openAlerts: number
+}
+
+export interface DevicePage {
+  devices: DeviceRow[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface DeviceQuery {
+  q?: string
+  state?: FleetState | 'all'
+  shopId?: string
+  sort?: string
+  dir?: 'asc' | 'desc'
+  limit?: number
+  offset?: number
 }
 
 export interface ErrorRow {
@@ -38,9 +103,116 @@ export interface ErrorRow {
   count: number
   firstSeen: string
   lastSeen: string
+  status: 'open' | 'resolved' | 'ignored' | null
 }
 
-/* ---- store onboarding (WS3): /api/stores/*, same admin bearer ---- */
+export type GroupStatus = 'open' | 'resolved' | 'ignored'
+
+export interface ErrorGroupRow {
+  id: string
+  fingerprint: string
+  message: string
+  source: string | null
+  stack: string | null
+  totalCount: number
+  deviceCount: number
+  firstVersion: string | null
+  lastVersion: string | null
+  firstSeen: string
+  lastSeen: string
+  status: GroupStatus
+  resolvedAt: string | null
+  resolvedInVersion: string | null
+  regressedAt: string | null
+}
+
+export interface GroupPage {
+  groups: ErrorGroupRow[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface GroupDevice {
+  deviceId: string
+  shopId: string | null
+  count: number
+  appVersion: string | null
+  firstSeen: string
+  lastSeen: string
+}
+
+export interface AlertRow {
+  id: string
+  ruleKey: string
+  deviceId: string | null
+  shopId: string | null
+  shopName: string | null
+  severity: 'warning' | 'critical'
+  title: string
+  detail: string | null
+  state: 'open' | 'acknowledged' | 'resolved'
+  openedAt: string
+  lastSeenAt: string
+  acknowledgedAt: string | null
+  resolvedAt: string | null
+  notifiedAt: string | null
+  notifyError: string | null
+}
+
+export interface Overview {
+  counts: { all: number; healthy: number; attention: number; offline: number }
+  uptimeBps30d: number | null
+  syncLagMs: { p50: number | null; p95: number | null }
+  versions: { version: string; count: number }[]
+  openErrorGroups: number
+  openAlerts: number
+  unverifiedDevices: number
+  windowHours: number
+}
+
+export interface HistoryBeat {
+  capturedAt: string
+  syncPending: number | null
+  syncFailed: number | null
+  oldestPendingAgeMs: number | null
+  salesTodayCount: number | null
+  salesTodayPesewas: number | null
+  appVersion: string | null
+  serverHealthy: boolean | null
+  errorGroups: number
+}
+
+export interface DeviceDayRow {
+  day: string
+  beats: number
+  expectedBeats: number
+  uptimeBps: number
+  maxSyncPending: number | null
+  maxSyncFailed: number | null
+  salesCount: number | null
+  salesPesewas: number | null
+  appVersion: string | null
+}
+
+export interface DeviceHistory {
+  beats: HistoryBeat[]
+  days: DeviceDayRow[]
+  uptimeBps: number | null
+}
+
+export interface AuditRow {
+  id: string
+  actorLabel: string | null
+  action: string
+  targetType: string | null
+  targetId: string | null
+  detail: unknown
+  ip: string | null
+  createdAt: string
+}
+
+/* ---- store onboarding: /api/stores/*, same operator session ---- */
 
 export interface ShopMachine {
   keyId: string
@@ -87,92 +259,220 @@ export interface ProvisionResult {
   expiresAt: string
 }
 
+/* ----------------------------------------------------------------- errors */
+
 export class Unauthorized extends Error {}
+
+/** Thrown for a 403 — signed in, but this role may not do that. */
+export class Forbidden extends Error {}
 
 const trimBase = (base: string) => base.replace(/\/+$/, '')
 
-export async function login(apiBase: string, password: string): Promise<string> {
+async function failure(res: Response): Promise<Error> {
+  const body = (await res.json().catch(() => null)) as
+    | { error?: string; message?: string }
+    | null
+  const message = body?.message ?? `Request failed (HTTP ${res.status})`
+  if (res.status === 403) return new Forbidden(message)
+  return new Error(message)
+}
+
+/* ------------------------------------------------------------------ login */
+
+export async function signIn(
+  apiBase: string,
+  email: string,
+  password: string,
+): Promise<Session> {
   const res = await fetch(`${trimBase(apiBase)}/fleet/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ email, password }),
   })
-  if (res.status === 401) throw new Unauthorized('Wrong password')
-  if (res.status === 503) throw new Error('Fleet dashboard is not enabled on this server')
-  if (!res.ok) throw new Error(`Login failed (HTTP ${res.status})`)
-  const body = (await res.json()) as { token: string }
-  return body.token
-}
-
-async function authedGet<T>(apiBase: string, token: string, path: string): Promise<T> {
-  const res = await fetch(`${trimBase(apiBase)}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (res.status === 401) throw new Unauthorized('Session expired')
-  if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`)
-  return res.json() as Promise<T>
-}
-
-export function getDevices(apiBase: string, token: string): Promise<{ devices: DeviceRow[] }> {
-  return authedGet(apiBase, token, '/fleet/devices')
-}
-
-export function getErrors(
-  apiBase: string,
-  token: string,
-  deviceId?: string,
-): Promise<{ errors: ErrorRow[] }> {
-  const q = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : ''
-  return authedGet(apiBase, token, `/fleet/errors${q}`)
-}
-
-async function authedPost<T>(
-  apiBase: string,
-  token: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const res = await fetch(`${trimBase(apiBase)}${path}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  })
-  if (res.status === 401) throw new Unauthorized('Session expired')
-  if (!res.ok) {
-    // Server errors carry { error, message } — surface the message when present.
-    const detail = (await res.json().catch(() => null)) as { message?: string } | null
-    throw new Error(detail?.message ?? `Request failed (HTTP ${res.status})`)
+  if (res.status === 503) {
+    throw new Error('The fleet control plane is not enabled on this server')
   }
-  return res.json() as Promise<T>
+  if (!res.ok) throw await failure(res)
+  const body = (await res.json()) as Omit<Session, 'apiBase'>
+  return { apiBase: trimBase(apiBase), ...body }
 }
 
-export function getShops(apiBase: string, token: string): Promise<{ shops: ShopRow[] }> {
-  return authedGet(apiBase, token, '/api/stores')
+/* ----------------------------------------------------------------- client */
+
+export interface Api {
+  operator: Operator
+  apiBase: string
+  overview(): Promise<Overview>
+  devices(query?: DeviceQuery): Promise<DevicePage>
+  device(deviceId: string): Promise<DeviceRow>
+  deviceHistory(deviceId: string, hours?: number): Promise<DeviceHistory>
+  deviceErrors(deviceId: string): Promise<ErrorRow[]>
+  errorGroups(query?: { status?: GroupStatus | 'all'; q?: string; limit?: number; offset?: number }): Promise<GroupPage>
+  groupDevices(fingerprint: string): Promise<GroupDevice[]>
+  setGroupStatus(
+    fingerprint: string,
+    status: GroupStatus,
+    resolvedInVersion?: string | null,
+  ): Promise<void>
+  alerts(state?: string): Promise<AlertRow[]>
+  acknowledgeAlert(id: string): Promise<void>
+  audit(limit?: number): Promise<AuditRow[]>
+  shops(): Promise<ShopRow[]>
+  provisionShop(input: ProvisionInput): Promise<ProvisionResult>
+  reissueClaimCode(shopId: string): Promise<{ claimCode: string; expiresAt: string }>
+  revokeStoreKey(keyId: string): Promise<void>
 }
 
-export function provisionShop(
-  apiBase: string,
-  token: string,
-  input: ProvisionInput,
-): Promise<ProvisionResult> {
-  return authedPost(apiBase, token, '/api/stores/provision', input)
-}
+/**
+ * Build the API surface for a signed-in session.
+ *
+ * `onRenewed` is called whenever a refresh produces new tokens so the caller can
+ * persist them; `onExpired` when the session is beyond saving.
+ */
+export function createApi(
+  initial: Session,
+  hooks: { onRenewed: (s: Session) => void; onExpired: () => void },
+): Api {
+  let session = initial
+  // One shared refresh at a time. Six concurrent 401s should produce one refresh
+  // and five waiters, not six competing attempts that invalidate each other.
+  let refreshing: Promise<boolean> | null = null
 
-export function reissueClaimCode(
-  apiBase: string,
-  token: string,
-  shopId: string,
-): Promise<{ claimCode: string; expiresAt: string }> {
-  return authedPost(apiBase, token, `/api/stores/${shopId}/claim-code`)
-}
+  async function refresh(): Promise<boolean> {
+    refreshing ??= (async () => {
+      try {
+        const res = await fetch(`${session.apiBase}/fleet/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: session.refreshToken }),
+        })
+        if (!res.ok) return false
+        const body = (await res.json()) as Omit<Session, 'apiBase'>
+        session = { apiBase: session.apiBase, ...body }
+        hooks.onRenewed(session)
+        return true
+      } catch {
+        return false
+      } finally {
+        // Cleared on the next tick so waiters settled in this microtask all read
+        // the same result before another refresh can start.
+        setTimeout(() => {
+          refreshing = null
+        }, 0)
+      }
+    })()
+    return refreshing
+  }
 
-export function revokeStoreKey(
-  apiBase: string,
-  token: string,
-  keyId: string,
-): Promise<{ ok: true }> {
-  return authedPost(apiBase, token, `/api/stores/keys/${keyId}/revoke`)
+  async function call<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
+    const res = await fetch(`${session.apiBase}${path}`, {
+      ...init,
+      headers: {
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...init?.headers,
+        Authorization: `Bearer ${session.accessToken}`,
+      },
+    })
+
+    if (res.status === 401 && !retried) {
+      if (await refresh()) return call<T>(path, init, true)
+      hooks.onExpired()
+      throw new Unauthorized('Session expired')
+    }
+    if (res.status === 401) {
+      hooks.onExpired()
+      throw new Unauthorized('Session expired')
+    }
+    if (!res.ok) throw await failure(res)
+    return res.json() as Promise<T>
+  }
+
+  const post = <T>(path: string, body?: unknown) =>
+    call<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
+
+  const query = (params: Record<string, string | number | undefined>): string => {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== '' && v !== 'all') qs.set(k, String(v))
+    }
+    const s = qs.toString()
+    return s ? `?${s}` : ''
+  }
+
+  return {
+    get operator() {
+      return session.operator
+    },
+    get apiBase() {
+      return session.apiBase
+    },
+
+    overview: () => call<Overview>('/fleet/overview'),
+
+    devices: (q = {}) =>
+      call<DevicePage>(
+        `/fleet/devices${query({
+          q: q.q,
+          state: q.state,
+          shopId: q.shopId,
+          sort: q.sort,
+          dir: q.dir,
+          limit: q.limit,
+          offset: q.offset,
+        })}`,
+      ),
+
+    device: async (deviceId) =>
+      (await call<{ device: DeviceRow }>(`/fleet/devices/${encodeURIComponent(deviceId)}`)).device,
+
+    deviceHistory: (deviceId, hours = 48) =>
+      call<DeviceHistory>(
+        `/fleet/devices/${encodeURIComponent(deviceId)}/history${query({ hours })}`,
+      ),
+
+    deviceErrors: async (deviceId) =>
+      (await call<{ errors: ErrorRow[] }>(`/fleet/errors${query({ deviceId })}`)).errors,
+
+    errorGroups: (q = {}) =>
+      call<GroupPage>(
+        `/fleet/errors${query({ status: q.status, q: q.q, limit: q.limit, offset: q.offset })}`,
+      ),
+
+    groupDevices: async (fingerprint) =>
+      (
+        await call<{ devices: GroupDevice[] }>(
+          `/fleet/errors/${encodeURIComponent(fingerprint)}/devices`,
+        )
+      ).devices,
+
+    setGroupStatus: async (fingerprint, status, resolvedInVersion) => {
+      await post(`/fleet/errors/${encodeURIComponent(fingerprint)}/status`, {
+        status,
+        resolvedInVersion: resolvedInVersion ?? null,
+      })
+    },
+
+    alerts: async (state = 'open') =>
+      (await call<{ alerts: AlertRow[] }>(`/fleet/alerts${query({ state })}`)).alerts,
+
+    acknowledgeAlert: async (id) => {
+      await post(`/fleet/alerts/${encodeURIComponent(id)}/ack`)
+    },
+
+    audit: async (limit = 100) =>
+      (await call<{ entries: AuditRow[] }>(`/fleet/audit${query({ limit })}`)).entries,
+
+    shops: async () => (await call<{ shops: ShopRow[] }>('/api/stores')).shops,
+
+    provisionShop: (input) => post<ProvisionResult>('/api/stores/provision', input),
+
+    reissueClaimCode: (shopId) =>
+      post<{ claimCode: string; expiresAt: string }>(
+        `/api/stores/${encodeURIComponent(shopId)}/claim-code`,
+      ),
+
+    revokeStoreKey: async (keyId) => {
+      await post(`/api/stores/keys/${encodeURIComponent(keyId)}/revoke`)
+    },
+  }
 }

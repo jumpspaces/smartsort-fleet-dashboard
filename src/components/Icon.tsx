@@ -1,7 +1,8 @@
 /**
- * A small hand-rolled icon set rather than a dependency: this app needs nine
- * glyphs, and one consistent stroke weight matters more than breadth. All are
- * 16px on a 16 grid, 1.5 stroke, round caps — same vocabulary everywhere.
+ * A small hand-rolled icon set rather than a dependency: this app needs a
+ * handful of glyphs, and one consistent stroke weight matters more than
+ * breadth. All are 16px on a 16 grid, 1.5 stroke, round caps — same vocabulary
+ * everywhere.
  */
 
 export type IconName =
@@ -15,6 +16,9 @@ export type IconName =
   | 'close'
   | 'refresh'
   | 'alert'
+  | 'bug'
+  | 'bell'
+  | 'link'
   | 'sun'
   | 'moon'
   | 'auto'
@@ -35,6 +39,9 @@ const PATHS: Record<IconName, Glyph> = {
   close: 'm4 4 8 8M12 4l-8 8',
   refresh: 'M13.25 8a5.25 5.25 0 1 1-1.6-3.78M13.25 2.5v3h-3',
   alert: 'M8 5.5v3.25M8 11.25h.01M8 2.25 14 12.75H2z',
+  bug: 'M5.25 6.25a2.75 2.75 0 0 1 5.5 0v3a2.75 2.75 0 0 1-5.5 0zM6.25 4.25 5.25 2.75M9.75 4.25l1-1.5M5.25 7.5H2.75M13.25 7.5h-2.5M5.25 10.25 3 11.5M10.75 10.25 13 11.5',
+  bell: 'M8 2.75a3.75 3.75 0 0 1 3.75 3.75c0 3 1 3.75 1 3.75h-9.5s1-.75 1-3.75A3.75 3.75 0 0 1 8 2.75ZM6.75 12.75a1.25 1.25 0 0 0 2.5 0',
+  link: 'M6.75 9.25a2.5 2.5 0 0 0 3.5 0l2-2a2.47 2.47 0 0 0-3.5-3.5l-.75.75M9.25 6.75a2.5 2.5 0 0 0-3.5 0l-2 2a2.47 2.47 0 0 0 3.5 3.5l.75-.75',
   sun: 'M8 10.75a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5ZM8 1.75v1.5M8 12.75v1.5M14.25 8h-1.5M3.25 8h-1.5M12.42 3.58l-1.06 1.06M4.64 11.36l-1.06 1.06M12.42 12.42l-1.06-1.06M4.64 4.64 3.58 3.58',
   moon: 'M13.25 9.4A5.6 5.6 0 0 1 6.6 2.75a5.75 5.75 0 1 0 6.65 6.65Z',
   auto: {

@@ -1,7 +1,10 @@
-import { useState } from 'react'
-import { reissueClaimCode, revokeStoreKey, Unauthorized, type ShopRow } from '../api.ts'
+import { useEffect, useState } from 'react'
+import { Unauthorized, type Api, type DeviceRow, type ShopRow } from '../api.ts'
+import type { Navigate } from '../App.tsx'
+import { Icon } from '../components/Icon.tsx'
 import {
   Button,
+  Chip,
   Drawer,
   DrawerSection,
   Empty,
@@ -10,27 +13,43 @@ import {
   Status,
 } from '../components/ui.tsx'
 import { exact, timeAgo, timeUntil } from '../lib/format.ts'
+import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 
 export function ShopDrawer({
-  apiBase,
-  token,
+  api,
   shop,
   onClose,
   onChanged,
   onUnauthorized,
   onReissued,
+  onNavigate,
 }: {
-  apiBase: string
-  token: string
+  api: Api
   shop: ShopRow
   onClose: () => void
   onChanged: () => void
   onUnauthorized: () => void
   onReissued: (r: { claimCode: string; expiresAt: string }) => void
+  onNavigate: Navigate
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
+  // The shop's terminals and how they are actually doing. Both tables carry
+  // shopId and neither view used to read the other's, so diagnosing "Kumasi is
+  // down" meant searching twice with no guarantee the names matched.
+  const [devices, setDevices] = useState<DeviceRow[] | null>(null)
+
+  useEffect(() => {
+    let live = true
+    api
+      .devices({ shopId: shop.id, limit: 50 })
+      .then((page) => live && setDevices(page.devices))
+      .catch(() => live && setDevices([]))
+    return () => {
+      live = false
+    }
+  }, [api, shop.id])
 
   async function run(id: string, fn: () => Promise<unknown>) {
     setBusy(id)
@@ -80,7 +99,7 @@ export function ShopDrawer({
             busyLabel="Issuing…"
             onClick={() =>
               void run('code', async () => {
-                const r = await reissueClaimCode(apiBase, token, shop.id)
+                const r = await api.reissueClaimCode(shop.id)
                 onReissued(r)
               })
             }
@@ -89,6 +108,57 @@ export function ShopDrawer({
           </Button>
         </DrawerSection>
       )}
+
+      {/* Health, not just inventory. A machine row says a key exists; this says
+          whether the till behind it is actually working right now. */}
+      <DrawerSection title="Terminals">
+        {devices == null ? (
+          <div className="skeleton" style={{ width: '55%' }} />
+        ) : devices.length === 0 ? (
+          <p className="muted small">
+            No terminal from this shop has reported to the fleet yet.
+          </p>
+        ) : (
+          <>
+            <ul className="plain-list">
+              {devices.map((d) => (
+                <li key={d.deviceId}>
+                  <button
+                    type="button"
+                    className="row-open"
+                    onClick={() => {
+                      onClose()
+                      onNavigate('terminals', { deviceId: d.deviceId })
+                    }}
+                  >
+                    <Status tone={TONE[d.state]} label={STATE_LABEL[d.state]} />
+                  </button>
+                  <span className="muted small">
+                    <span className="mono">{d.appVersion ?? '—'}</span> ·{' '}
+                    {d.state === 'healthy'
+                      ? `last seen ${timeAgo(d.lastReportAt)}`
+                      : (primaryReason(d.reasons) ?? timeAgo(d.lastReportAt))}
+                  </span>
+                  {d.recentOpenErrorGroups > 0 && (
+                    <Chip tone="warn">{d.recentOpenErrorGroups} errors</Chip>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                onClose()
+                onNavigate('terminals', { shopId: shop.id })
+              }}
+            >
+              <Icon name="link" size={14} />
+              See these in Terminals
+            </Button>
+          </>
+        )}
+      </DrawerSection>
 
       <DrawerSection title={`Machines${shop.machines.length ? ` (${shop.machines.length})` : ''}`}>
         {shop.machines.length === 0 ? (
@@ -127,7 +197,7 @@ export function ShopDrawer({
                       busyLabel="Revoking…"
                       onClick={() =>
                         void run(m.keyId, async () => {
-                          await revokeStoreKey(apiBase, token, m.keyId)
+                          await api.revokeStoreKey(m.keyId)
                           setConfirming(null)
                         })
                       }

@@ -1,23 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  getDevices,
-  getErrors,
-  Unauthorized,
-  type DeviceRow,
-  type ErrorRow,
+  createApi,
+  type Api,
+  type Overview,
+  type Session,
 } from './api.ts'
-import { Icon } from './components/Icon.tsx'
+import { Icon, type IconName } from './components/Icon.tsx'
 import { Mark } from './components/Mark.tsx'
-import { Button, Notice } from './components/ui.tsx'
+import { Button } from './components/ui.tsx'
 import { duration, hostOf } from './lib/format.ts'
 import { useTheme, type ThemePref } from './lib/theme.ts'
-import { DeviceDrawer } from './views/DeviceDrawer.tsx'
+import { Alerts } from './views/Alerts.tsx'
+import { Errors } from './views/Errors.tsx'
 import { Login } from './views/Login.tsx'
 import { Shops } from './views/Shops.tsx'
 import { Terminals } from './views/Terminals.tsx'
 
+const LS_SESSION = 'fleet_session'
 const LS_API = 'fleet_api'
-const LS_TOKEN = 'fleet_token'
 const LS_VIEW = 'fleet_view'
 const REFRESH_MS = 30_000
 /** Past this, the live dot stops claiming the numbers are current. */
@@ -26,124 +26,144 @@ const STALE_MS = REFRESH_MS * 3
 /** Default API base: build-time VITE_FLEET_API, else empty (typed at login). */
 const DEFAULT_API = (import.meta.env.VITE_FLEET_API as string | undefined) ?? ''
 
-type View = 'terminals' | 'shops'
+export type View = 'terminals' | 'shops' | 'errors' | 'alerts'
+
+/** What a view needs to send someone to another view with a filter applied. */
+export interface Navigate {
+  (view: 'terminals', opts?: { shopId?: string; deviceId?: string }): void
+  (view: View): void
+}
+
+function readSession(): Session | null {
+  try {
+    const raw = localStorage.getItem(LS_SESSION)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Session
+    return parsed.accessToken && parsed.apiBase ? parsed : null
+  } catch {
+    return null
+  }
+}
 
 export function App() {
-  const [apiBase, setApiBase] = useState(() => localStorage.getItem(LS_API) ?? DEFAULT_API)
-  const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN))
+  const [session, setSession] = useState<Session | null>(readSession)
 
-  const onLogin = useCallback((base: string, tok: string) => {
-    localStorage.setItem(LS_API, base)
-    localStorage.setItem(LS_TOKEN, tok)
-    setApiBase(base)
-    setToken(tok)
+  const onSignedIn = useCallback((s: Session) => {
+    localStorage.setItem(LS_SESSION, JSON.stringify(s))
+    localStorage.setItem(LS_API, s.apiBase)
+    setSession(s)
   }, [])
 
-  const onLogout = useCallback(() => {
-    localStorage.removeItem(LS_TOKEN)
-    setToken(null)
+  const onSignOut = useCallback(() => {
+    localStorage.removeItem(LS_SESSION)
+    setSession(null)
   }, [])
 
-  if (!token) return <Login apiBase={apiBase} onLogin={onLogin} />
-  return <Dashboard apiBase={apiBase} token={token} onLogout={onLogout} />
+  if (!session) {
+    return (
+      <Login
+        apiBase={localStorage.getItem(LS_API) ?? DEFAULT_API}
+        onSignedIn={onSignedIn}
+      />
+    )
+  }
+  return <Dashboard session={session} onRenewed={onSignedIn} onSignOut={onSignOut} />
 }
 
 /* ---------------------------------------------------------------- dashboard */
 
 function Dashboard({
-  apiBase,
-  token,
-  onLogout,
+  session,
+  onRenewed,
+  onSignOut,
 }: {
-  apiBase: string
-  token: string
-  onLogout: () => void
+  session: Session
+  onRenewed: (s: Session) => void
+  onSignOut: () => void
 }) {
   const [view, setView] = useState<View>(
     () => (localStorage.getItem(LS_VIEW) as View | null) ?? 'terminals',
   )
-  const [devices, setDevices] = useState<DeviceRow[] | null>(null)
-  const [errors, setErrors] = useState<ErrorRow[]>([])
-  const [selected, setSelected] = useState<DeviceRow | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  /** Set when another view sends you here pre-filtered (shop → its terminals). */
+  const [terminalFilter, setTerminalFilter] = useState<{ shopId?: string; deviceId?: string }>({})
+  const [overview, setOverview] = useState<Overview | null>(null)
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [shopCount, setShopCount] = useState<number | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  // One API object for the life of the session. Rebuilt only if the operator
+  // signs in again, so views can hold it without re-fetching on every render.
+  const api = useMemo<Api>(
+    () =>
+      createApi(session, {
+        onRenewed,
+        onExpired: onSignOut,
+      }),
+    // The token inside `session` changes on refresh, but createApi keeps its own
+    // copy and updates it in place — rebuilding here would discard that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session.operator.id, session.apiBase],
+  )
 
   useEffect(() => {
     localStorage.setItem(LS_VIEW, view)
   }, [view])
 
+  const navigate = useCallback<Navigate>((next: View, opts?: { shopId?: string; deviceId?: string }) => {
+    setTerminalFilter(next === 'terminals' ? (opts ?? {}) : {})
+    setView(next)
+  }, [])
+
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      const [d, e] = await Promise.all([getDevices(apiBase, token), getErrors(apiBase, token)])
-      setDevices(d.devices)
-      setErrors(e.errors)
+      setOverview(await api.overview())
       setUpdatedAt(Date.now())
-      setLoadError(null)
-    } catch (err) {
-      if (err instanceof Unauthorized) return onLogout()
-      setLoadError(err instanceof Error ? err.message : 'Could not reach the fleet server')
+    } catch {
+      // The views surface their own load errors against the data they own; a
+      // failed KPI strip should not blank the page under it.
     } finally {
       setRefreshing(false)
     }
-  }, [apiBase, token, onLogout])
+    setReloadKey((k) => k + 1)
+  }, [api])
 
   usePolling(refresh, REFRESH_MS)
-
-  const errorsByDevice = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const e of errors) m.set(e.deviceId, (m.get(e.deviceId) ?? 0) + e.count)
-    return m
-  }, [errors])
 
   return (
     <div className="shell">
       <Sidebar
-        apiBase={apiBase}
+        apiBase={api.apiBase}
+        operator={session.operator}
         view={view}
-        onView={setView}
-        deviceCount={devices?.length ?? null}
-        shopCount={shopCount}
+        onView={navigate}
+        overview={overview}
         updatedAt={updatedAt}
         refreshing={refreshing}
         onRefresh={() => void refresh()}
-        onLogout={onLogout}
+        onSignOut={onSignOut}
       />
 
       <main className="main">
         <div className="view">
-          {loadError && <Notice>{loadError}</Notice>}
-
           {view === 'shops' ? (
-            <Shops
-              apiBase={apiBase}
-              token={token}
-              onUnauthorized={onLogout}
-              onCount={setShopCount}
-            />
+            <Shops api={api} reloadKey={reloadKey} onNavigate={navigate} />
+          ) : view === 'errors' ? (
+            <Errors api={api} reloadKey={reloadKey} onNavigate={navigate} />
+          ) : view === 'alerts' ? (
+            <Alerts api={api} reloadKey={reloadKey} onNavigate={navigate} />
           ) : (
             <Terminals
-              devices={devices}
-              errorsByDevice={errorsByDevice}
-              loading={devices == null}
-              onSelect={setSelected}
+              api={api}
+              overview={overview}
+              reloadKey={reloadKey}
+              initialShopId={terminalFilter.shopId}
+              initialDeviceId={terminalFilter.deviceId}
+              onNavigate={navigate}
             />
           )}
         </div>
       </main>
-
-      {selected && (
-        <DeviceDrawer
-          apiBase={apiBase}
-          token={token}
-          device={selected}
-          errorCount={errorsByDevice.get(selected.deviceId) ?? 0}
-          onClose={() => setSelected(null)}
-          onUnauthorized={onLogout}
-        />
-      )}
     </div>
   )
 }
@@ -152,33 +172,54 @@ function Dashboard({
 
 function Sidebar({
   apiBase,
+  operator,
   view,
   onView,
-  deviceCount,
-  shopCount,
+  overview,
   updatedAt,
   refreshing,
   onRefresh,
-  onLogout,
+  onSignOut,
 }: {
   apiBase: string
+  operator: Session['operator']
   view: View
   onView: (v: View) => void
-  deviceCount: number | null
-  shopCount: number | null
+  overview: Overview | null
   updatedAt: number | null
   refreshing: boolean
   onRefresh: () => void
-  onLogout: () => void
+  onSignOut: () => void
 }) {
   const [theme, setTheme] = useTheme()
   const since = useTicker(updatedAt != null)
   const age = updatedAt == null ? null : since - updatedAt
   const stale = age == null || age > STALE_MS
 
-  const items: { id: View; label: string; icon: 'terminals' | 'shops'; count: number | null }[] = [
-    { id: 'terminals', label: 'Terminals', icon: 'terminals', count: deviceCount },
-    { id: 'shops', label: 'Shops', icon: 'shops', count: shopCount },
+  const items: {
+    id: View
+    label: string
+    icon: IconName
+    count: number | null
+    /** Counts that mean "unfinished work" get weight; totals stay quiet. */
+    urgent?: boolean
+  }[] = [
+    { id: 'terminals', label: 'Terminals', icon: 'terminals', count: overview?.counts.all ?? null },
+    {
+      id: 'alerts',
+      label: 'Alerts',
+      icon: 'bell',
+      count: overview?.openAlerts ?? null,
+      urgent: (overview?.openAlerts ?? 0) > 0,
+    },
+    {
+      id: 'errors',
+      label: 'Errors',
+      icon: 'bug',
+      count: overview?.openErrorGroups ?? null,
+      urgent: (overview?.openErrorGroups ?? 0) > 0,
+    },
+    { id: 'shops', label: 'Shops', icon: 'shops', count: null },
   ]
 
   return (
@@ -196,7 +237,11 @@ function Sidebar({
           >
             <Icon name={it.icon} />
             {it.label}
-            {it.count != null && <span className="nav-count">{it.count}</span>}
+            {it.count != null && it.count > 0 && (
+              <span className="nav-count" data-urgent={it.urgent || undefined}>
+                {it.count}
+              </span>
+            )}
           </button>
         ))}
       </nav>
@@ -214,6 +259,9 @@ function Sidebar({
                 ? `Last update ${duration(age)} ago`
                 : `Live · ${duration(age)} ago`}
           </span>
+          <span className="conn-who" title={`${operator.name} · ${operator.role}`}>
+            {operator.email}
+          </span>
         </div>
 
         <div className="sidebar-actions">
@@ -228,7 +276,7 @@ function Sidebar({
           >
             {!refreshing && <Icon name="refresh" />}
           </Button>
-          <Button variant="ghost" size="sm" onClick={onLogout}>
+          <Button variant="ghost" size="sm" onClick={onSignOut}>
             Sign out
           </Button>
         </div>

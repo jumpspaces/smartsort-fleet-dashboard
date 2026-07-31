@@ -1509,6 +1509,296 @@ tbody tr[data-clickable='true']:hover .chev {
 }
 
 /* =============================================================================
+   KPI strip — the three or four numbers that come from HISTORY rather than the
+   current snapshot. Quiet by construction: these are context for the table
+   below, not the headline, so they carry no chroma at all.
+   ============================================================================= */
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.kpi-label {
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+.kpi-value {
+  font-size: var(--t-xl);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.kpi-note {
+  font-size: var(--t-xs);
+  color: var(--ink-muted);
+}
+
+/* =============================================================================
+   health reasons — the server's "why", worst first
+   ============================================================================= */
+
+.reasons {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.reasons li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+  color: var(--ink);
+}
+
+/* A device reporting on the shared enrollment key. A word, not a hue alone. */
+.tag-warn {
+  margin-left: 6px;
+  font-size: var(--t-xs);
+  color: var(--warn);
+  border: 1px solid var(--warn-line);
+  background: var(--warn-bg);
+  border-radius: var(--r-sm);
+  padding: 0 5px;
+}
+
+/* =============================================================================
+   trends — sparklines over one terminal's recent beats
+   ============================================================================= */
+
+.trends {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.trend-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.trend-label {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+
+.trend-now {
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.spark {
+  display: block;
+  width: 100%;
+  height: 32px;
+  /* Inherits the ink colour: a trend line is not a state, so it must not
+     borrow the palette that means healthy / attention / offline. */
+  color: var(--ink-faint);
+}
+
+.spark-empty {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+  padding: 8px 0;
+}
+
+/* Daily availability strip. Tone here IS state, so it follows the same three
+   colours as everywhere else — and every cell carries its numbers in `title`. */
+.days {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.day-cell {
+  width: 12px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--idle-mark);
+}
+.day-cell[data-tone='ok'] {
+  background: var(--ok-mark);
+}
+.day-cell[data-tone='warn'] {
+  background: var(--warn-mark);
+}
+.day-cell[data-tone='bad'] {
+  background: var(--bad-mark);
+}
+.days .small {
+  margin-left: 8px;
+}
+
+/* =============================================================================
+   alerts
+   ============================================================================= */
+
+.alert-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--line);
+}
+.alert:first-child {
+  border-top: none;
+}
+
+.alert-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.alert-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.alert-title {
+  font-size: var(--t-base);
+  color: var(--ink);
+}
+
+.alert-detail {
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+
+.alert-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+
+.alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.bad-text {
+  color: var(--bad);
+}
+
+/* An open count in the rail is unfinished work, so it earns weight that a
+   plain total does not. */
+.nav-count[data-urgent] {
+  background: var(--bad-bg);
+  border: 1px solid var(--bad-line);
+  color: var(--bad);
+}
+
+/* =============================================================================
+   shared small pieces
+   ============================================================================= */
+
+.drawer-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+.plain-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.plain-list li:first-child {
+  border-top: none;
+}
+
+.triage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Error message as a table cell: one line, ellipsised, full text in the drawer. */
+.err-title {
+  display: block;
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.pager-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+/* Who is signed in — the console is per-person now, so the rail says which. */
+.conn-who {
+  display: block;
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* =============================================================================
    reduced motion — every animation has a still alternative, none is removed
    in a way that hides state
    ============================================================================= */
