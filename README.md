@@ -44,8 +44,15 @@ Then **create at least one operator account** — nobody can sign in until you d
 
 ```
 cd server
+npm run db:migrate                                                  # once, for the fleet tables
 npm run fleet:operator -- add you@jumpspaces.co "Your Name" --role admin
 npm run fleet:operator -- list
+```
+
+On the droplet the same command runs inside the container:
+
+```
+docker compose exec server npm run fleet:operator -- add you@jumpspaces.co "Your Name" --role admin
 ```
 
 > `FLEET_ADMIN_SECRET` is no longer a password. It gates whether the control
