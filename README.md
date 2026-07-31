@@ -46,6 +46,23 @@ npm run dev        # http://localhost:5180
 At the login screen enter the droplet URL and the `FLEET_ADMIN_SECRET`. Optionally
 bake a default URL with `VITE_FLEET_API=https://cloud…` at build time.
 
+## Design
+
+`src/styles.css` holds the whole token system and is the place to start before
+changing anything visual. Two rules the rest of the UI depends on:
+
+- **Chroma is reserved for state.** There is no brand accent — primary buttons
+  are ink (near-black in light, near-white in dark) so that green, amber and
+  red only ever mean healthy, attention and offline. The single non-status hue
+  is the focus ring. Adding a coloured button re-introduces the ambiguity.
+- **Status is never colour alone.** Every state carries a shape (filled dot /
+  ring) *and* a word, so the table is readable with red-green colour blindness.
+
+Light and dark are both first-class and follow the OS until someone picks one
+(`src/lib/theme.ts`). `src/lib/state.ts` has the single definition of what makes
+a terminal healthy / attention / offline — the gauge, the filters and the table
+all read it, so they can't disagree.
+
 ## Auth model
 
 - Devices authenticate to `/fleet/report` with `X-Fleet-Key: FLEET_REPORT_SECRET`.
