@@ -16,6 +16,7 @@ import {
 } from '../components/ui.tsx'
 import { cedis, duration, exact, timeAgo } from '../lib/format.ts'
 import { severityTone, STATE_LABEL, TONE } from '../lib/state.ts'
+import { DeviceActions } from './DeviceActions.tsx'
 
 export function DeviceDrawer({
   api,
@@ -173,6 +174,14 @@ export function DeviceDrawer({
             <span className="muted small">Daily availability, most recent first</span>
           </div>
         )}
+      </DrawerSection>
+
+      <DrawerSection title="Actions">
+        <DeviceActions
+          api={api}
+          device={device}
+          canAct={api.operator.role !== 'viewer'}
+        />
       </DrawerSection>
 
       <DrawerSection title="Sync">

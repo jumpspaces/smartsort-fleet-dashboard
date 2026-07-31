@@ -6,6 +6,7 @@ import {
   type ShopRow,
 } from '../api.ts'
 import type { Navigate } from '../App.tsx'
+import type { Route } from '../lib/route.ts'
 import { Icon } from '../components/Icon.tsx'
 import { compare, PlainHeader, SortHeader, type Sort } from '../components/SortHeader.tsx'
 import {
@@ -28,12 +29,16 @@ export type ClaimResult = ProvisionResult & { shopName: string }
 
 export function Shops({
   api,
+  route,
   reloadKey,
   onNavigate,
+  onReplace,
 }: {
   api: Api
+  route: Route
   reloadKey: number
   onNavigate: Navigate
+  onReplace: (params: Record<string, string | undefined>) => void
 }) {
   const [shops, setShops] = useState<ShopRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -41,6 +46,7 @@ export function Shops({
   const [result, setResult] = useState<ClaimResult | null>(null)
   const [selected, setSelected] = useState<ShopRow | null>(null)
   const [query, setQuery] = useState('')
+  const openShopId = route.params.shop
   const [sort, setSort] = useState<Sort<SortKey>>({ key: 'status', dir: 'asc' })
   const searchRef = useRef<HTMLInputElement>(null)
   useHotkey('/', () => searchRef.current?.focus())
@@ -50,8 +56,8 @@ export function Shops({
       const shops = await api.shops()
       setShops(shops)
       setError(null)
-      // Keep an open drawer in sync with what the server now says.
-      setSelected((cur) => (cur ? (shops.find((s) => s.id === cur.id) ?? null) : null))
+      // The open drawer re-derives from the URL + this list, so a refresh keeps
+      // it in sync without a second copy of that logic here.
     } catch (err) {
       // The API client already drops the session on an unrecoverable 401; this
       // just avoids painting a scary message over a sign-in screen.
@@ -63,6 +69,12 @@ export function Shops({
   useEffect(() => {
     void refresh()
   }, [refresh, reloadKey])
+
+  // The open drawer lives in the URL like every other bit of view state, so a
+  // shop's page can be linked to directly.
+  useEffect(() => {
+    setSelected(openShopId ? ((shops ?? []).find((s) => s.id === openShopId) ?? null) : null)
+  }, [openShopId, shops])
 
   const onProvisioned = useCallback(
     (r: ClaimResult) => {
@@ -204,7 +216,7 @@ export function Shops({
               </thead>
               <tbody>
                 {visible.map((s) => (
-                  <tr key={s.id} data-clickable="true" onClick={() => setSelected(s)}>
+                  <tr key={s.id} data-clickable="true" onClick={() => onReplace({ shop: s.id })}>
                     <td>
                       <Status
                         tone={s.activated ? 'ok' : 'warn'}
@@ -217,7 +229,7 @@ export function Shops({
                         className="row-open"
                         onClick={(e) => {
                           e.stopPropagation()
-                          setSelected(s)
+                          onReplace({ shop: s.id })
                         }}
                       >
                         {s.name}
@@ -270,7 +282,7 @@ export function Shops({
         <ShopDrawer
           api={api}
           shop={selected}
-          onClose={() => setSelected(null)}
+          onClose={() => onReplace({ shop: undefined })}
           onChanged={refresh}
           onNavigate={onNavigate}
           onUnauthorized={() => {}}
@@ -282,7 +294,7 @@ export function Shops({
               ownerId: '',
               shopName: selected.name,
             })
-            setSelected(null)
+            onReplace({ shop: undefined })
           }}
         />
       )}

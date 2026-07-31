@@ -9,6 +9,7 @@ import { Icon, type IconName } from './components/Icon.tsx'
 import { Mark } from './components/Mark.tsx'
 import { Button } from './components/ui.tsx'
 import { duration, hostOf } from './lib/format.ts'
+import { useRoute, type View } from './lib/route.ts'
 import { useTheme, type ThemePref } from './lib/theme.ts'
 import { Alerts } from './views/Alerts.tsx'
 import { Errors } from './views/Errors.tsx'
@@ -18,7 +19,6 @@ import { Terminals } from './views/Terminals.tsx'
 
 const LS_SESSION = 'fleet_session'
 const LS_API = 'fleet_api'
-const LS_VIEW = 'fleet_view'
 const REFRESH_MS = 30_000
 /** Past this, the live dot stops claiming the numbers are current. */
 const STALE_MS = REFRESH_MS * 3
@@ -26,13 +26,16 @@ const STALE_MS = REFRESH_MS * 3
 /** Default API base: build-time VITE_FLEET_API, else empty (typed at login). */
 const DEFAULT_API = (import.meta.env.VITE_FLEET_API as string | undefined) ?? ''
 
-export type View = 'terminals' | 'shops' | 'errors' | 'alerts'
+export type { View } from './lib/route.ts'
 
-/** What a view needs to send someone to another view with a filter applied. */
-export interface Navigate {
-  (view: 'terminals', opts?: { shopId?: string; deviceId?: string }): void
-  (view: View): void
-}
+/**
+ * Send someone to another view with a filter applied. Pushes a history entry,
+ * so the link is shareable and Back returns where they came from.
+ */
+export type Navigate = (
+  view: View,
+  params?: Record<string, string | undefined>,
+) => void
 
 function readSession(): Session | null {
   try {
@@ -81,11 +84,8 @@ function Dashboard({
   onRenewed: (s: Session) => void
   onSignOut: () => void
 }) {
-  const [view, setView] = useState<View>(
-    () => (localStorage.getItem(LS_VIEW) as View | null) ?? 'terminals',
-  )
-  /** Set when another view sends you here pre-filtered (shop → its terminals). */
-  const [terminalFilter, setTerminalFilter] = useState<{ shopId?: string; deviceId?: string }>({})
+  const { route, navigate, replace } = useRoute()
+  const view = route.view
   const [overview, setOverview] = useState<Overview | null>(null)
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -104,15 +104,6 @@ function Dashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [session.operator.id, session.apiBase],
   )
-
-  useEffect(() => {
-    localStorage.setItem(LS_VIEW, view)
-  }, [view])
-
-  const navigate = useCallback<Navigate>((next: View, opts?: { shopId?: string; deviceId?: string }) => {
-    setTerminalFilter(next === 'terminals' ? (opts ?? {}) : {})
-    setView(next)
-  }, [])
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
@@ -147,19 +138,19 @@ function Dashboard({
       <main className="main">
         <div className="view">
           {view === 'shops' ? (
-            <Shops api={api} reloadKey={reloadKey} onNavigate={navigate} />
+            <Shops api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
           ) : view === 'errors' ? (
-            <Errors api={api} reloadKey={reloadKey} onNavigate={navigate} />
+            <Errors api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
           ) : view === 'alerts' ? (
-            <Alerts api={api} reloadKey={reloadKey} onNavigate={navigate} />
+            <Alerts api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
           ) : (
             <Terminals
               api={api}
+              route={route}
               overview={overview}
               reloadKey={reloadKey}
-              initialShopId={terminalFilter.shopId}
-              initialDeviceId={terminalFilter.deviceId}
               onNavigate={navigate}
+              onReplace={replace}
             />
           )}
         </div>

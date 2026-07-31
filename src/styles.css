@@ -1729,6 +1729,67 @@ tbody tr[data-clickable='true']:hover .chev {
 }
 
 /* =============================================================================
+   remote actions
+   ============================================================================= */
+
+.actions {
+  display: flex;
+  flex-direction: column;
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.action:first-child {
+  border-top: none;
+}
+
+.action-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.action-label {
+  font-size: var(--t-base);
+  color: var(--ink);
+}
+
+.action-desc {
+  font-size: var(--t-xs);
+  color: var(--ink-muted);
+}
+
+.action-confirm {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cmd {
+  align-items: flex-start !important;
+  justify-content: space-between;
+}
+
+.cmd-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.cmd-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* =============================================================================
    shared small pieces
    ============================================================================= */
 

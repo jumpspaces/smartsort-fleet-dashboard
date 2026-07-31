@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Api, DeviceRow, FleetState, Overview } from '../api.ts'
 import type { Navigate } from '../App.tsx'
+import type { Route } from '../lib/route.ts'
 import { Icon } from '../components/Icon.tsx'
 import { PlainHeader, SortHeader, type Sort } from '../components/SortHeader.tsx'
 import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
@@ -17,25 +18,34 @@ const PAGE_SIZE = 50
 
 export function Terminals({
   api,
+  route,
   overview,
   reloadKey,
-  initialShopId,
-  initialDeviceId,
   onNavigate,
+  onReplace,
 }: {
   api: Api
+  route: Route
   overview: Overview | null
   reloadKey: number
-  initialShopId?: string
-  initialDeviceId?: string
   onNavigate: Navigate
+  onReplace: (params: Record<string, string | undefined>) => void
 }) {
-  const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<Filter>('all')
-  const [shopId, setShopId] = useState<string | undefined>(initialShopId)
-  const [sort, setSort] = useState<Sort<SortKey>>({ key: 'state', dir: 'asc' })
-  const [offset, setOffset] = useState(0)
+  // The URL is the source of truth for everything shareable: filters, sort, page
+  // and which drawer is open. A link to a broken terminal is the single most
+  // useful thing one operator can send another.
+  const filter = (route.params.state as Filter | undefined) ?? 'all'
+  const shopId = route.params.shopId
+  const openDeviceId = route.params.device
+  const offset = Number(route.params.offset ?? 0) || 0
+  const sort: Sort<SortKey> = {
+    key: (route.params.sort as SortKey | undefined) ?? 'state',
+    dir: route.params.dir === 'desc' ? 'desc' : 'asc',
+  }
 
+  // Search is local while typing and mirrored to the URL once it settles —
+  // writing every keystroke would make Back walk letter by letter.
+  const [query, setQuery] = useState(route.params.q ?? '')
   const [rows, setRows] = useState<DeviceRow[] | null>(null)
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -45,18 +55,20 @@ export function Terminals({
   useHotkey('/', () => searchRef.current?.focus())
   const debouncedQuery = useDebounced(query)
 
-  // A shop link arriving from the Shops view replaces whatever was filtered.
   useEffect(() => {
-    setShopId(initialShopId)
-    setOffset(0)
-  }, [initialShopId])
+    onReplace({ q: debouncedQuery.trim() || undefined, offset: undefined })
+  }, [debouncedQuery, onReplace])
 
-  // Changing what is being asked for always returns to the first page —
-  // otherwise a narrowed filter can land on an offset past the end and read as
-  // "no terminals".
-  useEffect(() => {
-    setOffset(0)
-  }, [debouncedQuery, filter, sort.key, sort.dir])
+  const setFilter = (next: Filter) =>
+    // Narrowing always returns to the first page: otherwise a tighter filter can
+    // land on an offset past the end and read as "no terminals".
+    onReplace({ state: next === 'all' ? undefined : next, offset: undefined })
+
+  const setSort = (next: Sort<SortKey>) =>
+    onReplace({ sort: next.key, dir: next.dir, offset: undefined })
+
+  const setOffset = (next: number) =>
+    onReplace({ offset: next > 0 ? String(next) : undefined })
 
   const load = useCallback(async () => {
     try {
@@ -81,18 +93,22 @@ export function Terminals({
     void load()
   }, [load, reloadKey])
 
-  // Deep-linked from an alert or an error group: open that terminal's drawer.
+  // Deep-linked (?device=…): open that terminal's drawer, whether the link came
+  // from an alert, an error group, or somebody's chat message.
   useEffect(() => {
-    if (!initialDeviceId) return
+    if (!openDeviceId) {
+      setSelected(null)
+      return
+    }
     let live = true
     api
-      .device(initialDeviceId)
+      .device(openDeviceId)
       .then((d) => live && setSelected(d))
       .catch(() => {})
     return () => {
       live = false
     }
-  }, [api, initialDeviceId])
+  }, [api, openDeviceId])
 
   const counts = overview?.counts
   const filtering = filter !== 'all' || query.trim() !== '' || shopId != null
@@ -100,9 +116,11 @@ export function Terminals({
 
   const clearAll = () => {
     setQuery('')
-    setFilter('all')
-    setShopId(undefined)
+    onReplace({ q: undefined, state: undefined, shopId: undefined, offset: undefined })
   }
+
+  const openDevice = (d: DeviceRow) => onReplace({ device: d.deviceId })
+  const closeDevice = () => onReplace({ device: undefined })
 
   return (
     <>
@@ -211,7 +229,7 @@ export function Terminals({
                 </thead>
                 <tbody>
                   {rows.map((d) => (
-                    <tr key={d.deviceId} data-clickable="true" onClick={() => setSelected(d)}>
+                    <tr key={d.deviceId} data-clickable="true" onClick={() => openDevice(d)}>
                       <td>
                         <Status tone={TONE[d.state]} label={STATE_LABEL[d.state]} />
                         {/* The server says WHY, worst reason first. Showing it in
@@ -227,7 +245,7 @@ export function Terminals({
                           className="row-open"
                           onClick={(e) => {
                             e.stopPropagation()
-                            setSelected(d)
+                            openDevice(d)
                           }}
                         >
                           {d.shopName ?? 'Unclaimed terminal'}
@@ -279,7 +297,7 @@ export function Terminals({
         <DeviceDrawer
           api={api}
           device={selected}
-          onClose={() => setSelected(null)}
+          onClose={closeDevice}
           onNavigate={onNavigate}
         />
       )}

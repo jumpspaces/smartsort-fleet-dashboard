@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AlertRow, Api } from '../api.ts'
 import type { Navigate } from '../App.tsx'
+import type { Route } from '../lib/route.ts'
 import { Icon } from '../components/Icon.tsx'
 import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
 import { exact, timeAgo } from '../lib/format.ts'
@@ -25,14 +26,19 @@ const TABS: { id: Tab; label: string }[] = [
  */
 export function Alerts({
   api,
+  route,
   reloadKey,
   onNavigate,
+  onReplace,
 }: {
   api: Api
+  route: Route
   reloadKey: number
   onNavigate: Navigate
+  onReplace: (params: Record<string, string | undefined>) => void
 }) {
-  const [tab, setTab] = useState<Tab>('open')
+  const tab = (route.params.state as Tab | undefined) ?? 'open'
+  const setTab = (next: Tab) => onReplace({ state: next === 'open' ? undefined : next })
   const [alerts, setAlerts] = useState<AlertRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -144,7 +150,7 @@ export function Alerts({
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => onNavigate('terminals', { deviceId: a.deviceId! })}
+                      onClick={() => onNavigate('terminals', { device: a.deviceId! })}
                     >
                       <Icon name="link" size={14} />
                       Terminal

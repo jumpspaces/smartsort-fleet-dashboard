@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Api, ErrorGroupRow, GroupDevice, GroupStatus } from '../api.ts'
 import type { Navigate } from '../App.tsx'
+import type { Route } from '../lib/route.ts'
 import { Icon } from '../components/Icon.tsx'
 import {
   Button,
@@ -39,16 +40,22 @@ const TABS: { id: GroupStatus | 'all'; label: string }[] = [
  */
 export function Errors({
   api,
+  route,
   reloadKey,
   onNavigate,
+  onReplace,
 }: {
   api: Api
+  route: Route
   reloadKey: number
   onNavigate: Navigate
+  onReplace: (params: Record<string, string | undefined>) => void
 }) {
-  const [status, setStatus] = useState<GroupStatus | 'all'>('open')
-  const [query, setQuery] = useState('')
-  const [offset, setOffset] = useState(0)
+  const status = (route.params.status as GroupStatus | 'all' | undefined) ?? 'open'
+  const offset = Number(route.params.offset ?? 0) || 0
+  const openFingerprint = route.params.fp
+
+  const [query, setQuery] = useState(route.params.q ?? '')
   const [groups, setGroups] = useState<ErrorGroupRow[] | null>(null)
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -59,8 +66,13 @@ export function Errors({
   const debounced = useDebounced(query)
 
   useEffect(() => {
-    setOffset(0)
-  }, [status, debounced])
+    onReplace({ q: debounced.trim() || undefined, offset: undefined })
+  }, [debounced, onReplace])
+
+  const setStatus = (next: GroupStatus | 'all') =>
+    onReplace({ status: next === 'open' ? undefined : next, offset: undefined })
+  const setOffset = (next: number) =>
+    onReplace({ offset: next > 0 ? String(next) : undefined })
 
   const load = useCallback(async () => {
     try {
@@ -82,13 +94,23 @@ export function Errors({
     void load()
   }, [load, reloadKey])
 
+  // Keep the open drawer bound to the URL, so a link to one fault opens it.
+  useEffect(() => {
+    if (!openFingerprint) {
+      setSelected(null)
+      return
+    }
+    const match = groups?.find((g) => g.fingerprint === openFingerprint)
+    if (match) setSelected(match)
+  }, [openFingerprint, groups])
+
   const changeStatus = useCallback(
     async (fingerprint: string, next: GroupStatus, version?: string | null) => {
       await api.setGroupStatus(fingerprint, next, version)
-      setSelected(null)
+      onReplace({ fp: undefined })
       await load()
     },
-    [api, load],
+    [api, load, onReplace],
   )
 
   return (
@@ -178,14 +200,14 @@ export function Errors({
                 </thead>
                 <tbody>
                   {groups.map((g) => (
-                    <tr key={g.id} data-clickable="true" onClick={() => setSelected(g)}>
+                    <tr key={g.id} data-clickable="true" onClick={() => onReplace({ fp: g.fingerprint })}>
                       <td>
                         <button
                           type="button"
                           className="row-open err-title"
                           onClick={(e) => {
                             e.stopPropagation()
-                            setSelected(g)
+                            onReplace({ fp: g.fingerprint })
                           }}
                         >
                           {g.message}
@@ -234,7 +256,7 @@ export function Errors({
         <GroupDrawer
           api={api}
           group={selected}
-          onClose={() => setSelected(null)}
+          onClose={() => onReplace({ fp: undefined })}
           onStatus={changeStatus}
           onNavigate={onNavigate}
         />

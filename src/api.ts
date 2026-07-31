@@ -160,8 +160,31 @@ export interface AlertRow {
   notifyError: string | null
 }
 
+export interface CommandSpec {
+  name: string
+  label: string
+  description: string
+}
+
+export interface CommandRow {
+  id: string
+  deviceId: string
+  command: string
+  payload: unknown
+  state: 'pending' | 'sent' | 'done' | 'failed' | 'expired'
+  issuedByLabel: string | null
+  issuedAt: string
+  sentAt: string | null
+  completedAt: string | null
+  expiresAt: string
+  ok: boolean | null
+  result: string | null
+  error: string | null
+}
+
 export interface Overview {
   counts: { all: number; healthy: number; attention: number; offline: number }
+  pendingCommands: number
   uptimeBps30d: number | null
   syncLagMs: { p50: number | null; p95: number | null }
   versions: { version: string; count: number }[]
@@ -317,6 +340,10 @@ export interface Api {
   alerts(state?: string): Promise<AlertRow[]>
   acknowledgeAlert(id: string): Promise<void>
   audit(limit?: number): Promise<AuditRow[]>
+  commandCatalogue(): Promise<CommandSpec[]>
+  deviceCommands(deviceId: string): Promise<CommandRow[]>
+  issueCommand(deviceId: string, command: string, payload?: unknown): Promise<CommandRow>
+  cancelCommand(id: string): Promise<void>
   shops(): Promise<ShopRow[]>
   provisionShop(input: ProvisionInput): Promise<ProvisionResult>
   reissueClaimCode(shopId: string): Promise<{ claimCode: string; expiresAt: string }>
@@ -461,6 +488,28 @@ export function createApi(
 
     audit: async (limit = 100) =>
       (await call<{ entries: AuditRow[] }>(`/fleet/audit${query({ limit })}`)).entries,
+
+    commandCatalogue: async () =>
+      (await call<{ commands: CommandSpec[] }>('/fleet/commands')).commands,
+
+    deviceCommands: async (deviceId) =>
+      (
+        await call<{ commands: CommandRow[] }>(
+          `/fleet/devices/${encodeURIComponent(deviceId)}/commands`,
+        )
+      ).commands,
+
+    issueCommand: async (deviceId, command, payload) =>
+      (
+        await post<{ command: CommandRow }>(
+          `/fleet/devices/${encodeURIComponent(deviceId)}/commands`,
+          { command, payload },
+        )
+      ).command,
+
+    cancelCommand: async (id) => {
+      await post(`/fleet/commands/${encodeURIComponent(id)}/cancel`)
+    },
 
     shops: async () => (await call<{ shops: ShopRow[] }>('/api/stores')).shops,
 

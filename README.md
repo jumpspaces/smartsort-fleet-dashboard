@@ -34,6 +34,16 @@ FLEET_ADMIN_SECRET=<openssl rand -hex 24>    # enables the vendor surface; signs
 FLEET_ALERT_WEBHOOK_URL=https://…
 FLEET_ALERT_WEBHOOK_SECRET=<openssl rand -hex 24>   # sent as X-Fleet-Signature
 
+# Optional but strongly recommended — the dead-man switch. The server pings this
+# after every successful evaluation pass; an external watcher (healthchecks.io,
+# Cronitor, Uptime Kuma push) alerts when the pings STOP. It is the only signal
+# that survives the droplet dying — from inside, a dead server and a healthy
+# fleet both produce silence.
+FLEET_HEARTBEAT_URL=https://hc-ping.com/…
+
+# Optional — Prometheus scrape token for GET /fleet/metrics.
+FLEET_METRICS_TOKEN=<openssl rand -hex 24>
+
 # Optional — retention windows (defaults shown).
 FLEET_HISTORY_RETENTION_DAYS=14    # raw 3-minute beats
 FLEET_ROLLUP_RETENTION_DAYS=400    # daily rollups
@@ -118,6 +128,36 @@ notified once when it opens and once when it clears, so a flapping terminal
 produces a page and an all-clear rather than a stream. Delivery state lives on
 the row: an alert the webhook never accepted is shown as **not delivered**
 instead of quietly looking handled.
+
+## Remote actions
+
+The console can queue work for a terminal: **force sync**, **restart the local
+server**, **collect logs**, **report now**. Delivery rides the existing
+heartbeat — the terminal asks every ~3 minutes and the response carries whatever
+is waiting — so there is no inbound port to a till behind a domestic router.
+
+The command set is a fixed allowlist checked on **both** ends
+(`server/src/services/fleet-commands.service.ts` and the switch in
+`admin/electron/fleet-reporter.ts`). There is no shell, no path and no URL in any
+payload: the worst a stolen operator session can do is ask a terminal to restart
+its own backend, which is disruptive, immediately visible, and in the audit log
+with a name against it. Commands expire, only one of each can be outstanding per
+terminal, and a device on the shared enrollment key is never sent any — its
+identity is asserted rather than proven.
+
+## Watching the watcher
+
+A monitor cannot alert on its own death. Two outward-facing signals cover it:
+`FLEET_HEARTBEAT_URL` is pinged after each successful evaluation pass (so an
+external service alerts on *missing* pings), and `GET /fleet/metrics` serves
+Prometheus text behind `FLEET_METRICS_TOKEN` — its own read-only credential,
+never an operator session.
+
+## URLs
+
+View, filters, sort, page and the open drawer all live in the URL
+(`#/terminals?state=offline&device=…`). Links are shareable, the back button
+works, and a refresh keeps you where you were.
 
 ## Design
 
