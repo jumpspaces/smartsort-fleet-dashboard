@@ -31,6 +31,8 @@ export function DeviceActions({
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
+  // Only app.bundle carries anything, and all it carries is a version number.
+  const [version, setVersion] = useState('')
 
   const load = useCallback(async () => {
     const [specs, rows] = await Promise.all([
@@ -48,11 +50,17 @@ export function DeviceActions({
   }, [load])
 
   async function issue(name: string) {
+    if (name === 'app.bundle' && !/^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$/.test(version.trim())) {
+      setError('Enter a version number like 1.5.2.')
+      return
+    }
     setBusy(name)
     setError(null)
     try {
-      await api.issueCommand(device.deviceId, name)
+      const payload = name === 'app.bundle' ? { version: version.trim() } : undefined
+      await api.issueCommand(device.deviceId, name, payload)
       setConfirming(null)
+      setVersion('')
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not queue that action')
@@ -95,10 +103,14 @@ export function DeviceActions({
         <div className="actions">
           {catalogue.map((spec) => {
             const pending = waiting.some((c) => c.command === spec.name)
-            // A restart makes the till unusable for a few seconds. That deserves
-            // a second press, not a tooltip.
-            const risky = spec.name === 'server.restart'
+            // A restart makes the till unusable for a few seconds, and undoing
+            // an update throws away a patch the shop may be relying on. Both
+            // deserve a second press, not a tooltip.
+            const risky = spec.name === 'server.restart' || spec.name === 'app.revert'
             const isConfirming = confirming === spec.name
+            // The one command with a payload. It gets a field rather than a
+            // Run button, because "which version?" has no sensible default.
+            const needsVersion = spec.name === 'app.bundle'
 
             return (
               <div key={spec.name} className="action">
@@ -108,6 +120,27 @@ export function DeviceActions({
                 </div>
                 {pending ? (
                   <Chip tone="idle">Queued</Chip>
+                ) : needsVersion ? (
+                  <div className="action-confirm">
+                    <input
+                      className="input"
+                      style={{ width: 96 }}
+                      value={version}
+                      placeholder="1.5.2"
+                      aria-label="Version to install"
+                      disabled={!canAct || !device.keyVerified}
+                      onChange={(e) => setVersion(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      disabled={!canAct || !device.keyVerified}
+                      busy={busy === spec.name}
+                      title={canAct ? undefined : 'Your role is read-only'}
+                      onClick={() => void issue(spec.name)}
+                    >
+                      Send
+                    </Button>
+                  </div>
                 ) : isConfirming ? (
                   <div className="action-confirm">
                     <Button

@@ -216,7 +216,13 @@ export function DeviceDrawer({
 
       <DrawerSection title="Install">
         <dl className="kv-list">
-          <KV k="Version" v={<span className="mono">{device.appVersion ?? '—'}</span>} />
+          <KV k="Installed" v={<span className="mono">{device.appVersion ?? '—'}</span>} />
+          {/* Only worth a row when there is one: most terminals run what their
+              installer shipped, and an "App update: none" line on every drawer
+              would be noise. */}
+          {device.bundleVersion && (
+            <KV k="App update" v={<span className="mono">{device.bundleVersion}</span>} />
+          )}
           <KV k="Platform" v={`${device.platform ?? '—'} ${device.osVersion ?? ''}`.trim()} />
           <KV k="Mode" v={device.mode ?? '—'} />
           <KV k="Database" v={device.dbSizeBytes != null ? bytes(device.dbSizeBytes) : '—'} />

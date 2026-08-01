@@ -10,6 +10,7 @@ import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 import { useDebounced } from '../lib/useDebounced.ts'
 import { useHotkey } from '../lib/useHotkey.ts'
 import { DeviceDrawer } from './DeviceDrawer.tsx'
+import { Rollout } from './Rollout.tsx'
 
 type SortKey = 'state' | 'shop' | 'version' | 'sync' | 'sales' | 'errors' | 'lastSeen'
 type Filter = 'all' | FleetState
@@ -190,6 +191,16 @@ export function Terminals({
           )}
         </div>
 
+        {/* Rolling out acts on exactly what the filter above has selected, which
+            is why it lives here rather than in a menu of its own. */}
+        <Rollout
+          api={api}
+          query={{ q: debouncedQuery.trim() || undefined, state: filter, shopId }}
+          total={total}
+          canAct={api.operator.role !== 'viewer'}
+          onIssued={() => void load()}
+        />
+
         {rows == null ? (
           <TableSkeleton rows={6} />
         ) : total === 0 && !filtering ? (
@@ -259,7 +270,17 @@ export function Terminals({
                           )}
                         </div>
                       </td>
-                      <td className="mono">{d.appVersion ?? '—'}</td>
+                      {/* The patched version when a terminal is carrying one,
+                          because during a rollout that is the number being
+                          watched. The installed version stays visible after it,
+                          since which installer is on the machine still decides
+                          what a patch is allowed to assume. */}
+                      <td className="mono">
+                        {d.bundleVersion ?? d.appVersion ?? '—'}
+                        {d.bundleVersion && d.bundleVersion !== d.appVersion && (
+                          <span className="muted small"> on {d.appVersion ?? '?'}</span>
+                        )}
+                      </td>
                       <td className="muted">{d.platform ?? '—'}</td>
                       <td>{syncCell(d)}</td>
                       <td className="col-num">{salesCell(d)}</td>

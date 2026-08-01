@@ -50,6 +50,8 @@ export interface DeviceRow {
   shopId: string | null
   shopName: string | null
   appVersion: string | null
+  /** Renderer hot-patch in use, or null on the build from the installer. */
+  bundleVersion: string | null
   platform: string | null
   osVersion: string | null
   mode: string | null
