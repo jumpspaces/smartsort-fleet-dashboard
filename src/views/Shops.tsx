@@ -27,6 +27,14 @@ type SortKey = 'status' | 'name' | 'code' | 'machines' | 'created'
 /** Provisioning + the one-time code, kept together so the panel can show both. */
 export type ClaimResult = ProvisionResult & { shopName: string }
 
+/**
+ * Which kind of one-time code is on screen.
+ *
+ *   claim      activation — redeeming it sets the owner's password
+ *   reconnect  attaches another machine to a live shop and grants nothing else
+ */
+type CodeKind = 'claim' | 'reconnect'
+
 export function Shops({
   api,
   route,
@@ -43,7 +51,10 @@ export function Shops({
   const [shops, setShops] = useState<ShopRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  const [result, setResult] = useState<ClaimResult | null>(null)
+  // A one-time code to show once, and which kind it is — the panel's wording
+  // has to differ because an activation code sets the owner's password and a
+  // reconnect code deliberately does not.
+  const [result, setResult] = useState<(ClaimResult & { kind: CodeKind }) | null>(null)
   const [selected, setSelected] = useState<ShopRow | null>(null)
   const [query, setQuery] = useState('')
   const openShopId = route.params.shop
@@ -78,7 +89,7 @@ export function Shops({
 
   const onProvisioned = useCallback(
     (r: ClaimResult) => {
-      setResult(r)
+      setResult({ ...r, kind: 'claim' })
       setFormOpen(false)
       void refresh()
     },
@@ -288,7 +299,9 @@ export function Shops({
           onUnauthorized={() => {}}
           onReissued={(r) => {
             setResult({
-              ...r,
+              claimCode: r.code,
+              expiresAt: r.expiresAt,
+              kind: r.kind,
               shopId: selected.id,
               shopCode: selected.code ?? '',
               ownerId: '',
@@ -431,15 +444,29 @@ function OnboardForm({
 }
 
 /**
- * Shown once, right after provisioning or re-issue. It is read down a phone
- * line or written on an invoice and cannot be recovered, so it gets display
- * size, a copy button, and copy that says plainly this is the only showing.
+ * Shown once, right after provisioning or issuing a code. It is read down a
+ * phone line or written on an invoice and cannot be recovered, so it gets
+ * display size, a copy button, and copy that says plainly this is the only
+ * showing.
+ *
+ * The two kinds are worded apart on purpose. An operator reading one of these
+ * out is about to tell a shop what it does, and the difference is the whole
+ * safety story: a claim code hands over the owner's password, a reconnect code
+ * hands over nothing but the machine.
  */
-function ClaimPanel({ result, onDismiss }: { result: ClaimResult; onDismiss: () => void }) {
+function ClaimPanel({
+  result,
+  onDismiss,
+}: {
+  result: ClaimResult & { kind: CodeKind }
+  onDismiss: () => void
+}) {
+  const reconnect = result.kind === 'reconnect'
   return (
     <div className="claim">
       <div className="muted small">
-        One-time claim code for <span className="strong">{result.shopName}</span>
+        {reconnect ? 'One-time connect code for ' : 'One-time claim code for '}
+        <span className="strong">{result.shopName}</span>
       </div>
       <div className="claim-row">
         <span className="claim-code">{result.claimCode}</span>
@@ -449,12 +476,25 @@ function ClaimPanel({ result, onDismiss }: { result: ClaimResult; onDismiss: () 
         </Button>
       </div>
       <p className="hint">
-        Give this to the shop — they enter it on the desktop app to connect the machine and set the
-        owner’s password. It works once and expires{' '}
-        <span className="strong">{timeUntil(result.expiresAt)}</span>. You won’t be able to see it
-        again.
+        {reconnect ? (
+          <>
+            Give this to the shop — on the desktop app they choose{' '}
+            <span className="strong">Owner not available?</span> and enter it. It connects
+            the machine only: it sets no password and signs nobody in, so staff still need
+            their own login afterwards. It works once and expires{' '}
+            <span className="strong">{timeUntil(result.expiresAt)}</span>. You won’t be able
+            to see it again.
+          </>
+        ) : (
+          <>
+            Give this to the shop — they enter it on the desktop app to connect the machine
+            and set the owner’s password. It works once and expires{' '}
+            <span className="strong">{timeUntil(result.expiresAt)}</span>. You won’t be able
+            to see it again.
+          </>
+        )}
       </p>
-      {result.shopCode && (
+      {result.shopCode && !reconnect && (
         <p className="hint" style={{ marginTop: 8 }}>
           Their <span className="strong">shop code</span> is{' '}
           <span className="mono strong">{result.shopCode}</span> — the owner types this with their

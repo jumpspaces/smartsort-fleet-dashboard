@@ -29,7 +29,12 @@ export function ShopDrawer({
   onClose: () => void
   onChanged: () => void
   onUnauthorized: () => void
-  onReissued: (r: { claimCode: string; expiresAt: string }) => void
+  /**
+   * A freshly minted one-time code to show once. `kind` decides the wording,
+   * because the two grant very different things: an activation code sets the
+   * owner's password, a reconnect code only attaches a machine.
+   */
+  onReissued: (r: { code: string; expiresAt: string; kind: 'claim' | 'reconnect' }) => void
   onNavigate: Navigate
 }) {
   const [busy, setBusy] = useState<string | null>(null)
@@ -100,11 +105,38 @@ export function ShopDrawer({
             onClick={() =>
               void run('code', async () => {
                 const r = await api.reissueClaimCode(shop.id)
-                onReissued(r)
+                onReissued({ code: r.claimCode, expiresAt: r.expiresAt, kind: 'claim' })
               })
             }
           >
             {shop.hasLiveClaimCode ? 'Replace the claim code' : 'Issue a claim code'}
+          </Button>
+        </DrawerSection>
+      )}
+
+      {/* The counterpart for a shop that is already trading. A claim code can't
+          serve here — it would reset the owner's password on a live shop, which
+          the claim flow refuses outright — so until now an owner who was away or
+          locked out left their shop unable to bring up a till at all. */}
+      {shop.activated && (
+        <DrawerSection title="Connect a machine">
+          <p className="hint" style={{ marginBottom: 10 }}>
+            Normally the owner connects a new machine by signing in on it. Issue a code
+            only when they can't — away, unreachable, or locked out. It attaches the
+            machine and nothing else: no password is set, nobody is signed in, and staff
+            still need their own login to sell.
+          </p>
+          <Button
+            busy={busy === 'reconnect'}
+            busyLabel="Issuing…"
+            onClick={() =>
+              void run('reconnect', async () => {
+                const r = await api.issueReconnectCode(shop.id)
+                onReissued({ code: r.reconnectCode, expiresAt: r.expiresAt, kind: 'reconnect' })
+              })
+            }
+          >
+            Issue a connect code
           </Button>
         </DrawerSection>
       )}

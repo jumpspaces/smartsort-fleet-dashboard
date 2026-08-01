@@ -349,6 +349,12 @@ export interface Api {
   shops(): Promise<ShopRow[]>
   provisionShop(input: ProvisionInput): Promise<ProvisionResult>
   reissueClaimCode(shopId: string): Promise<{ claimCode: string; expiresAt: string }>
+  /**
+   * A one-time code that attaches another machine to a LIVE shop, for when the
+   * owner can't sign in to do it themselves. Unlike a claim code it sets no
+   * password and grants no session — see stores.service.ts#issueReconnectCode.
+   */
+  issueReconnectCode(shopId: string): Promise<{ reconnectCode: string; expiresAt: string }>
   revokeStoreKey(keyId: string): Promise<void>
 }
 
@@ -520,6 +526,11 @@ export function createApi(
     reissueClaimCode: (shopId) =>
       post<{ claimCode: string; expiresAt: string }>(
         `/api/stores/${encodeURIComponent(shopId)}/claim-code`,
+      ),
+
+    issueReconnectCode: (shopId) =>
+      post<{ reconnectCode: string; expiresAt: string }>(
+        `/api/stores/${encodeURIComponent(shopId)}/reconnect-code`,
       ),
 
     revokeStoreKey: async (keyId) => {
