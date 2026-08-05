@@ -217,6 +217,20 @@ export function ShopDrawer({
                     'Never synced'
                   )}
                 </div>
+                {/* A separate clock from "Last synced" above: that's normal data sync,
+                    this is the fleet health heartbeat (also shown in Terminals). The two
+                    can diverge — a machine can sync fine while offline from the fleet's
+                    point of view, or vice versa — so show both rather than let one imply
+                    the other. */}
+                {!m.revokedAt && (
+                  <div className="row-sub">
+                    {m.lastReportAt ? (
+                      <span title={exact(m.lastReportAt)}>Fleet check-in {timeAgo(m.lastReportAt)}</span>
+                    ) : (
+                      'No fleet check-in yet'
+                    )}
+                  </div>
+                )}
               </div>
 
               {!m.revokedAt &&
