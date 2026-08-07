@@ -194,6 +194,18 @@ export interface Overview {
   openAlerts: number
   unverifiedDevices: number
   windowHours: number
+  /**
+   * What has been published, read off the update feed — distinct from
+   * `versions`, which is only ever what terminals reported running.
+   */
+  release: {
+    latestVersion: string | null
+    releasedAt: string | null
+    installer: string | null
+    /** Versions with a signed bundle; the only ones a rollout can name. */
+    rollableVersions: string[]
+    available: boolean
+  }
 }
 
 export interface HistoryBeat {

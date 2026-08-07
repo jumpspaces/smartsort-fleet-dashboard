@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Api, DeviceQuery } from '../api.ts'
+import type { Api, DeviceQuery, Overview } from '../api.ts'
 import { Button, Notice } from '../components/ui.tsx'
 
 /**
@@ -42,6 +42,7 @@ export function Rollout({
   query,
   total,
   canAct,
+  release,
   onIssued,
 }: {
   api: Api
@@ -50,11 +51,17 @@ export function Rollout({
   /** How many terminals match it, for the confirmation line. */
   total: number
   canAct: boolean
-  /** Refresh the table once commands are queued. */
+  /**
+   * What is actually published, read off the update feed. This box used to be
+   * free text against a regex, so the version came out of somebody's memory and
+   * a typo produced a command every terminal would silently refuse.
+   */
+  release: Overview['release'] | null
   onIssued: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [version, setVersion] = useState('')
+  const rollable = release?.rollableVersions ?? []
   const [busy, setBusy] = useState<null | 'update' | 'undo'>(null)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -125,7 +132,18 @@ export function Rollout({
 
   if (!open) {
     return (
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => {
+          // Fill in the newest signed bundle on the way in — nine times in ten
+          // it is why the panel is being opened, and the feed has usually
+          // arrived by now even though it had not at first render. Never
+          // overwrites something already typed.
+          setVersion((v) => v || rollable[0] || '')
+          setOpen(true)
+        }}
+      >
         Roll out update…
       </Button>
     )
@@ -150,11 +168,20 @@ export function Rollout({
         <input
           className="input"
           value={version}
-          placeholder="1.5.2"
+          list="rollout-versions"
+          placeholder={rollable[0] ?? '1.6.0'}
           aria-label="Version to roll out"
           disabled={busy != null}
           onChange={(e) => setVersion(e.target.value)}
         />
+        {/* Every version with a signed bundle on the feed. A version that isn't
+            here has nothing to download, so offering the list is the cheapest
+            way to stop a rollout that could only ever fail. */}
+        <datalist id="rollout-versions">
+          {rollable.map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
         <Button size="sm" busy={busy === 'update'} onClick={() => void run('app.bundle')}>
           Roll out
         </Button>
@@ -162,6 +189,16 @@ export function Rollout({
           Close
         </Button>
       </div>
+
+      {/* Warn, don't block: the feed is read from one box and an operator may
+          legitimately know about a version this server cannot see. */}
+      {release?.available && rollable.length > 0 && VERSION.test(version.trim()) &&
+        !rollable.includes(version.trim()) && (
+          <p className="hint" style={{ marginTop: 8 }}>
+            No signed bundle for <b className="mono">{version.trim()}</b> is published. Terminals
+            will refuse it. Published: {rollable.slice(0, 5).join(', ')}.
+          </p>
+        )}
 
       {busy && (
         <p className="hint" style={{ marginTop: 10 }}>
@@ -176,7 +213,8 @@ export function Rollout({
             {outcome.queued === 1 ? 'terminal' : 'terminals'}.
             {outcome.alreadyQueued > 0 && ` ${outcome.alreadyQueued} already had one waiting.`}
             {outcome.skipped > 0 &&
-              ` ${outcome.skipped} skipped — not yet claimed, so they cannot be sent actions.`}
+              ` ${outcome.skipped} skipped — still reporting on the shared enrollment key rather` +
+                ` than their own, so the server will not send them actions.`}
           </p>
           {outcome.failed.length > 0 && (
             <>

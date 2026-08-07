@@ -198,6 +198,7 @@ export function Terminals({
           query={{ q: debouncedQuery.trim() || undefined, state: filter, shopId }}
           total={total}
           canAct={api.operator.role !== 'viewer'}
+          release={overview?.release ?? null}
           onIssued={() => void load()}
         />
 
@@ -337,6 +338,7 @@ function Kpis({ overview }: { overview: Overview }) {
   const top = overview.versions[0]
   const adoption =
     top && overview.counts.all > 0 ? Math.round((top.count / overview.counts.all) * 100) : null
+  const latestPublished = overview.release?.latestVersion ?? null
 
   return (
     <div className="kpis">
@@ -370,6 +372,15 @@ function Kpis({ overview }: { overview: Overview }) {
             ? 'No terminals reporting'
             : `${adoption}% of ${overview.counts.all} · ${overview.versions.length} version(s) live`}
         </span>
+        {/* The published version, when it is not the one terminals are running.
+            "Current build" is only ever what the fleet REPORTED, so a release
+            that has reached nobody yet has no way of appearing on this page —
+            which is the exact moment somebody goes looking for it. */}
+        {latestPublished && latestPublished !== top?.version && (
+          <span className="kpi-note">
+            <b className="mono">{latestPublished}</b> published, not yet taken
+          </span>
+        )}
       </div>
 
       <div className="kpi">
