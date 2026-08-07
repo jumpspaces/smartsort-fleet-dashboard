@@ -72,6 +72,7 @@ export const RULE_LABEL: Record<string, string> = {
   'errors.spike': 'Error spike',
   'errors.new_group': 'New error in the field',
   'sales.flatline': 'No sales today',
+  'device.key_rejected': 'Claimed till reporting without its key',
 }
 
 export const ruleLabel = (key: string): string => RULE_LABEL[key] ?? key

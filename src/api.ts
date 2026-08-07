@@ -41,6 +41,7 @@ export interface HealthReason {
     | 'sync_deep'
     | 'errors_recent'
     | 'unverified_key'
+    | 'key_rejected'
   label: string
   severity: 'critical' | 'warning'
 }
