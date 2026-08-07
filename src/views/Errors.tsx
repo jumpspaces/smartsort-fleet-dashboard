@@ -14,10 +14,12 @@ import {
   Notice,
   TableSkeleton,
 } from '../components/ui.tsx'
+import { downloadCsv, toCsv } from '../lib/csv.ts'
 import { exact, timeAgo } from '../lib/format.ts'
 import { GROUP_STATUS_LABEL, GROUP_STATUS_TONE } from '../lib/state.ts'
 import { useDebounced } from '../lib/useDebounced.ts'
 import { useHotkey } from '../lib/useHotkey.ts'
+import { BulkErrorActions } from './BulkErrorActions.tsx'
 import { Pager } from './Terminals.tsx'
 
 const PAGE_SIZE = 25
@@ -60,6 +62,7 @@ export function Errors({
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<ErrorGroupRow | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   const searchRef = useRef<HTMLInputElement>(null)
   useHotkey('/', () => searchRef.current?.focus())
@@ -113,6 +116,35 @@ export function Errors({
     [api, load, onReplace],
   )
 
+  async function exportCsv() {
+    setExporting(true)
+    try {
+      const all: ErrorGroupRow[] = []
+      for (let off = 0; ; off += 200) {
+        const page = await api.errorGroups({ status, q: debounced.trim() || undefined, limit: 200, offset: off })
+        all.push(...page.groups)
+        if (all.length >= page.total || page.groups.length === 0) break
+      }
+      downloadCsv(
+        `errors-${new Date().toISOString().slice(0, 10)}.csv`,
+        toCsv(all, [
+          { header: 'Message', value: (g) => g.message },
+          { header: 'Status', value: (g) => g.status },
+          { header: 'Source', value: (g) => g.source },
+          { header: 'Terminals affected', value: (g) => g.deviceCount },
+          { header: 'Total events', value: (g) => g.totalCount },
+          { header: 'First version', value: (g) => g.firstVersion },
+          { header: 'Last version', value: (g) => g.lastVersion },
+          { header: 'First seen', value: (g) => g.firstSeen },
+          { header: 'Last seen', value: (g) => g.lastSeen },
+          { header: 'Resolved in version', value: (g) => g.resolvedInVersion },
+        ]),
+      )
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <>
       <div className="view-head">
@@ -156,6 +188,24 @@ export function Errors({
               </button>
             ))}
           </div>
+
+          <div className="toolbar-end">
+            <Button size="sm" variant="ghost" busy={exporting} onClick={() => void exportCsv()}>
+              Export CSV
+            </Button>
+          </div>
+
+          {status === 'open' && (
+            <div className="toolbar-end">
+              <BulkErrorActions
+                api={api}
+                q={debounced.trim() || undefined}
+                total={total}
+                canAct={api.operator.role !== 'viewer'}
+                onDone={() => void load()}
+              />
+            </div>
+          )}
         </div>
 
         {groups == null ? (

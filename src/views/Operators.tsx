@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Forbidden, Unauthorized, type Api, type CreateOperatorInput, type OperatorAccount } from '../api.ts'
 import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
 import { exact, timeAgo } from '../lib/format.ts'
+import { AlertThresholds } from './AlertThresholds.tsx'
 
 const ROLES: CreateOperatorInput['role'][] = ['viewer', 'operator', 'admin']
 
@@ -138,6 +139,8 @@ export function Operators({ api, onUnauthorized }: { api: Api; onUnauthorized: (
           </div>
         )}
       </section>
+
+      <AlertThresholds api={api} />
     </>
   )
 }

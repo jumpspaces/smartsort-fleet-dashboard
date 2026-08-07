@@ -233,6 +233,7 @@ export function Shops({
                         tone={s.activated ? 'ok' : 'warn'}
                         label={s.activated ? 'Active' : 'Pending'}
                       />
+                      {healthNote(s.health)}
                     </td>
                     <td>
                       <button
@@ -317,6 +318,22 @@ export function Shops({
 
 function liveMachines(s: ShopRow): number {
   return s.machines.filter((m) => !m.revokedAt).length
+}
+
+/**
+ * "3 of 4 healthy" under the onboarding status, so a shop with something
+ * wrong is visible from the table — not just from opening its drawer.
+ */
+function healthNote(health: ShopRow['health']) {
+  const total = health.healthy + health.attention + health.offline
+  if (total === 0) return null
+  const tone = health.offline > 0 ? 'bad' : health.attention > 0 ? 'warn' : 'ok'
+  return (
+    <div className="row-sub">
+      <span className="dot" data-tone={tone} /> {health.healthy} of {total}{' '}
+      {total === 1 ? 'terminal' : 'terminals'} healthy
+    </div>
+  )
 }
 
 function claimCell(s: ShopRow) {

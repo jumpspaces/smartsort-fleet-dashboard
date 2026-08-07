@@ -203,6 +203,27 @@ export interface CommandRow {
   error: string | null
 }
 
+/** One row from the fleet-wide command history — CommandRow plus where it went. */
+export interface CommandHistoryRow extends CommandRow {
+  shopId: string | null
+  shopName: string | null
+}
+
+export interface CommandHistoryPage {
+  commands: CommandHistoryRow[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface CommandHistoryQuery {
+  command?: string
+  state?: string
+  shopId?: string
+  limit?: number
+  offset?: number
+}
+
 export interface Overview {
   counts: { all: number; healthy: number; attention: number; offline: number }
   pendingCommands: number
@@ -257,6 +278,25 @@ export interface DeviceHistory {
   uptimeBps: number | null
 }
 
+/** Tunable detection thresholds — mirrors server FleetThresholds, all raw units (ms/sec/count). */
+export interface FleetThresholds {
+  offlineAfterMs: number
+  syncPendingDeep: number
+  oldestPendingStuckMs: number
+  recentErrorWindowMs: number
+  errorSpikeGroups: number
+  flatlineUptimeSec: number
+  flatlineMinSellingDays: number
+}
+
+export interface FleetConfigRow extends FleetThresholds {
+  webhookLastSuccessAt: string | null
+  webhookLastFailureAt: string | null
+  webhookLastFailureError: string | null
+  updatedBy: string | null
+  updatedAt: string
+}
+
 export interface AuditRow {
   id: string
   actorLabel: string | null
@@ -297,6 +337,8 @@ export interface ShopRow {
   activated: boolean
   hasLiveClaimCode: boolean
   claimCodeExpiresAt: string | null
+  /** Counts across this shop's reporting terminals — not machines(), which includes ones that never reported. */
+  health: { healthy: number; attention: number; offline: number }
   machines: ShopMachine[]
 }
 
@@ -376,6 +418,8 @@ export interface Api {
   acknowledgeAlert(id: string): Promise<void>
   /** Force a pass now instead of waiting for the next minute — for "I just fixed it". */
   evaluateAlerts(): Promise<void>
+  fleetConfig(): Promise<{ config: FleetConfigRow; defaults: FleetThresholds }>
+  updateFleetConfig(patch: Partial<FleetThresholds>): Promise<FleetConfigRow>
   audit(limit?: number): Promise<AuditRow[]>
   operators(): Promise<OperatorAccount[]>
   createOperator(input: CreateOperatorInput): Promise<Operator>
@@ -385,6 +429,7 @@ export interface Api {
   deviceCommands(deviceId: string): Promise<CommandRow[]>
   issueCommand(deviceId: string, command: string, payload?: unknown): Promise<CommandRow>
   cancelCommand(id: string): Promise<void>
+  commandHistory(query?: CommandHistoryQuery): Promise<CommandHistoryPage>
   shops(): Promise<ShopRow[]>
   provisionShop(input: ProvisionInput): Promise<ProvisionResult>
   reissueClaimCode(shopId: string): Promise<{ claimCode: string; expiresAt: string }>
@@ -539,6 +584,16 @@ export function createApi(
       await post('/fleet/alerts/evaluate')
     },
 
+    fleetConfig: () => call('/fleet/config'),
+
+    updateFleetConfig: async (patch) =>
+      (
+        await call<{ config: FleetConfigRow }>('/fleet/config', {
+          method: 'PUT',
+          body: JSON.stringify(patch),
+        })
+      ).config,
+
     audit: async (limit = 100) =>
       (await call<{ entries: AuditRow[] }>(`/fleet/audit${query({ limit })}`)).entries,
 
@@ -577,6 +632,17 @@ export function createApi(
     cancelCommand: async (id) => {
       await post(`/fleet/commands/${encodeURIComponent(id)}/cancel`)
     },
+
+    commandHistory: (q = {}) =>
+      call<CommandHistoryPage>(
+        `/fleet/commands/history${query({
+          command: q.command,
+          state: q.state,
+          shopId: q.shopId,
+          limit: q.limit,
+          offset: q.offset,
+        })}`,
+      ),
 
     shops: async () => (await call<{ shops: ShopRow[] }>('/api/stores')).shops,
 

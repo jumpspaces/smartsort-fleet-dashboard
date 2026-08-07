@@ -5,6 +5,7 @@ import type { Route } from '../lib/route.ts'
 import { Icon } from '../components/Icon.tsx'
 import { PlainHeader, SortHeader, type Sort } from '../components/SortHeader.tsx'
 import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
+import { downloadCsv, toCsv } from '../lib/csv.ts'
 import { cedis, duration, exact, timeAgo } from '../lib/format.ts'
 import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 import { useDebounced } from '../lib/useDebounced.ts'
@@ -53,6 +54,7 @@ export function Terminals({
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<DeviceRow | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   const searchRef = useRef<HTMLInputElement>(null)
   useHotkey('/', () => searchRef.current?.focus())
@@ -140,6 +142,46 @@ export function Terminals({
   const openDevice = (d: DeviceRow) => onReplace({ device: d.deviceId })
   const closeDevice = () => onReplace({ device: undefined })
 
+  async function exportCsv() {
+    setExporting(true)
+    try {
+      const all: DeviceRow[] = []
+      for (let off = 0; ; off += 200) {
+        const page = await api.devices({
+          q: debouncedQuery.trim() || undefined,
+          state: filter,
+          shopId,
+          platform,
+          appVersion,
+          limit: 200,
+          offset: off,
+        })
+        all.push(...page.devices)
+        if (all.length >= page.total || page.devices.length === 0) break
+      }
+      downloadCsv(
+        `terminals-${new Date().toISOString().slice(0, 10)}.csv`,
+        toCsv(all, [
+          { header: 'Shop', value: (d) => d.shopName ?? 'Unclaimed' },
+          { header: 'Device ID', value: (d) => d.deviceId },
+          { header: 'State', value: (d) => d.state },
+          { header: 'Version', value: (d) => d.appVersion },
+          { header: 'Bundle version', value: (d) => d.bundleVersion },
+          { header: 'Platform', value: (d) => d.platform },
+          { header: 'Key verified', value: (d) => (d.keyVerified ? 'yes' : 'no') },
+          { header: 'Sync pending', value: (d) => d.syncPending },
+          { header: 'Sync failed', value: (d) => d.syncFailed },
+          { header: 'Sales today (GHS)', value: (d) => ((d.salesTodayPesewas ?? 0) / 100).toFixed(2) },
+          { header: 'Sales count today', value: (d) => d.salesTodayCount },
+          { header: 'Open errors', value: (d) => d.recentOpenErrorGroups },
+          { header: 'Last seen', value: (d) => d.lastReportAt },
+        ]),
+      )
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <>
       <div className="view-head">
@@ -193,6 +235,12 @@ export function Terminals({
                 {f.label}
               </button>
             ))}
+          </div>
+
+          <div className="toolbar-end">
+            <Button size="sm" variant="ghost" busy={exporting} onClick={() => void exportCsv()}>
+              Export CSV
+            </Button>
           </div>
 
           {filtering && (
