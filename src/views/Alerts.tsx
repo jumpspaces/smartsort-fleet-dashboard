@@ -42,6 +42,7 @@ export function Alerts({
   const [alerts, setAlerts] = useState<AlertRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [evaluating, setEvaluating] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +71,19 @@ export function Alerts({
 
   const undelivered = (alerts ?? []).filter((a) => a.notifyError != null)
 
+  async function evaluate() {
+    setEvaluating(true)
+    setError(null)
+    try {
+      await api.evaluateAlerts()
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not run the evaluator')
+    } finally {
+      setEvaluating(false)
+    }
+  }
+
   return (
     <>
       <div className="view-head">
@@ -77,9 +91,16 @@ export function Alerts({
           <h1 className="view-title">Alerts</h1>
           <p className="view-sub">
             Conditions the server noticed on its own and pushed out. One alert per condition per
-            terminal, notified once when it opens and once when it clears.
+            terminal, notified once when it opens and once when it clears. Re-evaluated every
+            minute on its own.
           </p>
         </div>
+        {api.operator.role !== 'viewer' && (
+          <Button size="sm" variant="ghost" busy={evaluating} onClick={() => void evaluate()}>
+            <Icon name="refresh" size={14} />
+            Re-check now
+          </Button>
+        )}
       </div>
 
       {error && <Notice>{error}</Notice>}
@@ -137,6 +158,12 @@ export function Alerts({
 
                   <div className="alert-meta">
                     <span title={exact(a.openedAt)}>Opened {timeAgo(a.openedAt)}</span>
+                    {a.acknowledgedAt && (
+                      <span title={exact(a.acknowledgedAt)}>
+                        · Acknowledged {timeAgo(a.acknowledgedAt)}
+                        {a.acknowledgedByLabel ? ` by ${a.acknowledgedByLabel}` : ''}
+                      </span>
+                    )}
                     {a.resolvedAt && (
                       <span title={exact(a.resolvedAt)}>· Resolved {timeAgo(a.resolvedAt)}</span>
                     )}

@@ -37,6 +37,8 @@ export function Terminals({
   // useful thing one operator can send another.
   const filter = (route.params.state as Filter | undefined) ?? 'all'
   const shopId = route.params.shopId
+  const platform = route.params.platform
+  const appVersion = route.params.version
   const openDeviceId = route.params.device
   const offset = Number(route.params.offset ?? 0) || 0
   const sort: Sort<SortKey> = {
@@ -77,6 +79,8 @@ export function Terminals({
         q: debouncedQuery.trim() || undefined,
         state: filter,
         shopId,
+        platform,
+        appVersion,
         sort: sort.key,
         dir: sort.dir,
         limit: PAGE_SIZE,
@@ -88,7 +92,7 @@ export function Terminals({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reach the fleet server')
     }
-  }, [api, debouncedQuery, filter, shopId, sort.key, sort.dir, offset])
+  }, [api, debouncedQuery, filter, shopId, platform, appVersion, sort.key, sort.dir, offset])
 
   useEffect(() => {
     void load()
@@ -112,13 +116,26 @@ export function Terminals({
   }, [api, openDeviceId])
 
   const counts = overview?.counts
-  const filtering = filter !== 'all' || query.trim() !== '' || shopId != null
+  const filtering =
+    filter !== 'all' || query.trim() !== '' || shopId != null || platform != null || appVersion != null
   const shopLabel = shopId ? (rows?.[0]?.shopName ?? 'this shop') : null
 
   const clearAll = () => {
     setQuery('')
-    onReplace({ q: undefined, state: undefined, shopId: undefined, offset: undefined })
+    onReplace({
+      q: undefined,
+      state: undefined,
+      shopId: undefined,
+      platform: undefined,
+      version: undefined,
+      offset: undefined,
+    })
   }
+
+  // Click a build or platform in the table to narrow to it — the cheapest way to
+  // ask "who else is on this" without a separate distinct-values endpoint.
+  const setPlatform = (next: string | undefined) => onReplace({ platform: next, offset: undefined })
+  const setVersionFilter = (next: string | undefined) => onReplace({ version: next, offset: undefined })
 
   const openDevice = (d: DeviceRow) => onReplace({ device: d.deviceId })
   const closeDevice = () => onReplace({ device: undefined })
@@ -136,7 +153,7 @@ export function Terminals({
 
       {error && <Notice>{error}</Notice>}
 
-      {overview && <Kpis overview={overview} />}
+      {overview && <Kpis overview={overview} apiBase={api.apiBase} />}
 
       <section className="panel">
         <Gauge counts={counts} loading={rows == null} />
@@ -181,6 +198,16 @@ export function Terminals({
           {filtering && (
             <div className="toolbar-end">
               {shopId && <Chip tone="idle">Shop: {shopLabel}</Chip>}
+              {platform && (
+                <Chip tone="idle">
+                  Platform: {platform}
+                </Chip>
+              )}
+              {appVersion && (
+                <Chip tone="idle">
+                  Version: {appVersion}
+                </Chip>
+              )}
               <span>
                 {total} {total === 1 ? 'match' : 'matches'}
               </span>
@@ -195,7 +222,7 @@ export function Terminals({
             is why it lives here rather than in a menu of its own. */}
         <Rollout
           api={api}
-          query={{ q: debouncedQuery.trim() || undefined, state: filter, shopId }}
+          query={{ q: debouncedQuery.trim() || undefined, state: filter, shopId, platform, appVersion }}
           total={total}
           canAct={api.operator.role !== 'viewer'}
           release={overview?.release ?? null}
@@ -277,12 +304,42 @@ export function Terminals({
                           since which installer is on the machine still decides
                           what a patch is allowed to assume. */}
                       <td className="mono">
-                        {d.bundleVersion ?? d.appVersion ?? '—'}
+                        {d.appVersion ? (
+                          <button
+                            type="button"
+                            className="row-open mono"
+                            title="Filter to this version"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setVersionFilter(d.appVersion!)
+                            }}
+                          >
+                            {d.bundleVersion ?? d.appVersion}
+                          </button>
+                        ) : (
+                          '—'
+                        )}
                         {d.bundleVersion && d.bundleVersion !== d.appVersion && (
                           <span className="muted small"> on {d.appVersion ?? '?'}</span>
                         )}
                       </td>
-                      <td className="muted">{d.platform ?? '—'}</td>
+                      <td className="muted">
+                        {d.platform ? (
+                          <button
+                            type="button"
+                            className="row-open"
+                            title="Filter to this platform"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setPlatform(d.platform!)
+                            }}
+                          >
+                            {d.platform}
+                          </button>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                       <td>{syncCell(d)}</td>
                       <td className="col-num">{salesCell(d)}</td>
                       <td className="col-num">
@@ -334,11 +391,15 @@ export function Terminals({
  * how far behind the slowest queues are, and how far the current build has
  * spread. All three come from history, which is why they could not exist before.
  */
-function Kpis({ overview }: { overview: Overview }) {
+function Kpis({ overview, apiBase }: { overview: Overview; apiBase: string }) {
   const top = overview.versions[0]
   const adoption =
     top && overview.counts.all > 0 ? Math.round((top.count / overview.counts.all) * 100) : null
-  const latestPublished = overview.release?.latestVersion ?? null
+  const release = overview.release
+  const latestPublished = release?.latestVersion ?? null
+  // The manifest names a filename, not a URL — Caddy serves the feed directory
+  // at /updates on this same host, alongside the API (see UPDATE_FEED_DIR).
+  const installerHref = release?.installer ? `${apiBase}/updates/${release.installer}` : null
 
   return (
     <div className="kpis">
@@ -381,6 +442,14 @@ function Kpis({ overview }: { overview: Overview }) {
             <b className="mono">{latestPublished}</b> published, not yet taken
           </span>
         )}
+        {installerHref && (
+          <span className="kpi-note">
+            <a href={installerHref} target="_blank" rel="noreferrer">
+              Download installer
+            </a>
+            {release?.releasedAt && ` · published ${timeAgo(release.releasedAt)}`}
+          </span>
+        )}
       </div>
 
       <div className="kpi">
@@ -390,6 +459,16 @@ function Kpis({ overview }: { overview: Overview }) {
           {overview.unverifiedDevices === 0
             ? 'Every terminal reports on its own key'
             : 'Still on the shared enrollment secret'}
+        </span>
+      </div>
+
+      <div className="kpi">
+        <span className="kpi-label">Pending commands</span>
+        <span className="kpi-value">{overview.pendingCommands}</span>
+        <span className="kpi-note">
+          {overview.pendingCommands === 0
+            ? 'Nothing queued'
+            : 'Waiting for a terminal to check in'}
         </span>
       </div>
     </div>

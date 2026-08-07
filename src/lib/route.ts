@@ -15,9 +15,9 @@ import { useCallback, useEffect, useState } from 'react'
  * router dependency — the whole grammar is `#/view?a=b`.
  */
 
-export type View = 'terminals' | 'shops' | 'errors' | 'alerts'
+export type View = 'terminals' | 'shops' | 'errors' | 'alerts' | 'operators' | 'audit'
 
-const VIEWS: View[] = ['terminals', 'shops', 'errors', 'alerts']
+const VIEWS: View[] = ['terminals', 'shops', 'errors', 'alerts', 'operators', 'audit']
 
 export interface Route {
   view: View

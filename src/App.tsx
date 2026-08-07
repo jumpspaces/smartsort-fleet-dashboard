@@ -12,8 +12,10 @@ import { duration, hostOf } from './lib/format.ts'
 import { useRoute, type View } from './lib/route.ts'
 import { useTheme, type ThemePref } from './lib/theme.ts'
 import { Alerts } from './views/Alerts.tsx'
+import { Audit } from './views/Audit.tsx'
 import { Errors } from './views/Errors.tsx'
 import { Login } from './views/Login.tsx'
+import { Operators } from './views/Operators.tsx'
 import { Shops } from './views/Shops.tsx'
 import { Terminals } from './views/Terminals.tsx'
 
@@ -143,6 +145,10 @@ function Dashboard({
             <Errors api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
           ) : view === 'alerts' ? (
             <Alerts api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
+          ) : view === 'operators' ? (
+            <Operators api={api} onUnauthorized={onSignOut} />
+          ) : view === 'audit' ? (
+            <Audit api={api} onUnauthorized={onSignOut} />
           ) : (
             <Terminals
               api={api}
@@ -211,6 +217,10 @@ function Sidebar({
       urgent: (overview?.openErrorGroups ?? 0) > 0,
     },
     { id: 'shops', label: 'Shops', icon: 'shops', count: null },
+    { id: 'audit', label: 'Audit', icon: 'list', count: null },
+    ...(operator.role === 'admin'
+      ? [{ id: 'operators' as const, label: 'Operators', icon: 'users' as const, count: null }]
+      : []),
   ]
 
   return (

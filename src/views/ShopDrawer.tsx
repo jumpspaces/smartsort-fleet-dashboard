@@ -206,6 +206,9 @@ export function ShopDrawer({
                     {m.terminalCode}
                   </span>
                   <span className="strong">{m.machineName ?? 'Unnamed machine'}</span>
+                  {m.mode === 'peer' && (
+                    <Chip tone="idle">Peer till</Chip>
+                  )}
                 </div>
                 <div className="row-sub mono">{m.keyPrefix}…</div>
                 <div className="row-sub">

@@ -23,6 +23,8 @@ export type IconName =
   | 'moon'
   | 'auto'
   | 'inbox'
+  | 'users'
+  | 'list'
 
 /** A stroked outline, optionally with a solid half — used for the auto-theme
     glyph, where a stroke-only half circle just reads as the letter D. */
@@ -49,6 +51,9 @@ const PATHS: Record<IconName, Glyph> = {
     fill: 'M8 1.75a6.25 6.25 0 0 1 0 12.5Z',
   },
   inbox: 'M2.75 8.75h3l1 2h2.5l1-2h3M2.75 8.75 4.5 3.25h7l1.75 5.5v4h-10.5z',
+  users:
+    'M6 8.25a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM2 13.25c0-2.21 1.79-4 4-4s4 1.79 4 4M11 4.1a2.5 2.5 0 0 1 0 4.83M13.5 13.25c0-2.02-1.5-3.68-3.5-3.96',
+  list: 'M6.25 4.25h7M6.25 8h7M6.25 11.75h7M2.75 4.25h.01M2.75 8h.01M2.75 11.75h.01',
 }
 
 export function Icon({

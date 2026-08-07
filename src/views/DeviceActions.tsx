@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Api, CommandRow, CommandSpec, DeviceRow } from '../api.ts'
 import { Button, Chip, Notice } from '../components/ui.tsx'
-import { exact, timeAgo } from '../lib/format.ts'
+import { exact, timeAgo, timeUntil } from '../lib/format.ts'
 
 /**
  * Remote actions on one terminal.
@@ -179,16 +179,27 @@ export function DeviceActions({
               <div className="cmd-main">
                 <div className="cmd-head">
                   <span className="strong">{c.command}</span>
+                  {/* The one command whose payload matters to read back: without the
+                      version, "app.bundle, done" and "app.bundle, done" a week apart
+                      are indistinguishable in this history. */}
+                  {payloadVersion(c) && <span className="mono muted small">{payloadVersion(c)}</span>}
                   <Chip tone={stateTone(c.state)}>{stateLabel(c.state)}</Chip>
                 </div>
                 <div className="muted small">
                   {c.issuedByLabel ?? 'unknown'} ·{' '}
                   <span title={exact(c.issuedAt)}>{timeAgo(c.issuedAt)}</span>
-                  {c.completedAt && (
+                  {c.completedAt ? (
                     <>
                       {' '}
                       · finished <span title={exact(c.completedAt)}>{timeAgo(c.completedAt)}</span>
                     </>
+                  ) : (
+                    (c.state === 'pending' || c.state === 'sent') && (
+                      <>
+                        {' '}
+                        · expires <span title={exact(c.expiresAt)}>{timeUntil(c.expiresAt)}</span>
+                      </>
+                    )
                   )}
                 </div>
                 {c.error && <div className="bad-text small">{c.error}</div>}
@@ -205,6 +216,13 @@ export function DeviceActions({
       )}
     </>
   )
+}
+
+/** `app.bundle` is the one command carrying a payload worth reading back. */
+function payloadVersion(c: CommandRow): string | null {
+  if (c.command !== 'app.bundle') return null
+  const v = (c.payload as { version?: unknown } | null)?.version
+  return typeof v === 'string' ? v : null
 }
 
 function stateLabel(state: CommandRow['state']): string {

@@ -353,7 +353,8 @@ function GroupDrawer({
             </Button>
             <span className="hint">
               {group.status === 'resolved'
-                ? `Marked fixed${group.resolvedInVersion ? ` in ${group.resolvedInVersion}` : ''} ${timeAgo(group.resolvedAt)}.`
+                ? `Marked fixed${group.resolvedInVersion ? ` in ${group.resolvedInVersion}` : ''} ${timeAgo(group.resolvedAt)}` +
+                  `${group.resolvedByLabel ? ` by ${group.resolvedByLabel}` : ''}.`
                 : 'Ignored errors never count against terminal health.'}
             </span>
           </div>

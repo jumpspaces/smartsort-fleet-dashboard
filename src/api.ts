@@ -23,6 +23,20 @@ export interface Operator {
   role: 'admin' | 'operator' | 'viewer'
 }
 
+/** One row of `GET /fleet/operators` — the account, not the signed-in session. */
+export interface OperatorAccount extends Operator {
+  active: boolean
+  lastLoginAt: string | null
+  createdAt: string
+}
+
+export interface CreateOperatorInput {
+  email: string
+  name: string
+  password: string
+  role: 'admin' | 'operator' | 'viewer'
+}
+
 export interface Session {
   apiBase: string
   accessToken: string
@@ -88,6 +102,8 @@ export interface DeviceQuery {
   q?: string
   state?: FleetState | 'all'
   shopId?: string
+  platform?: string
+  appVersion?: string
   sort?: string
   dir?: 'asc' | 'desc'
   limit?: number
@@ -125,6 +141,7 @@ export interface ErrorGroupRow {
   lastSeen: string
   status: GroupStatus
   resolvedAt: string | null
+  resolvedByLabel: string | null
   resolvedInVersion: string | null
   regressedAt: string | null
 }
@@ -158,6 +175,7 @@ export interface AlertRow {
   openedAt: string
   lastSeenAt: string
   acknowledgedAt: string | null
+  acknowledgedByLabel: string | null
   resolvedAt: string | null
   notifiedAt: string | null
   notifyError: string | null
@@ -257,6 +275,8 @@ export interface ShopMachine {
   machineId: string
   machineName: string | null
   terminalCode: string
+  /** 'peer' machines are additional tills sharing this shop by design, not a policy violation. */
+  mode: 'exclusive' | 'peer'
   keyPrefix: string
   createdAt: string
   lastSeenAt: string | null
@@ -354,7 +374,13 @@ export interface Api {
   ): Promise<void>
   alerts(state?: string): Promise<AlertRow[]>
   acknowledgeAlert(id: string): Promise<void>
+  /** Force a pass now instead of waiting for the next minute — for "I just fixed it". */
+  evaluateAlerts(): Promise<void>
   audit(limit?: number): Promise<AuditRow[]>
+  operators(): Promise<OperatorAccount[]>
+  createOperator(input: CreateOperatorInput): Promise<Operator>
+  setOperatorActive(id: string, active: boolean): Promise<void>
+  setOperatorPassword(id: string, password: string): Promise<void>
   commandCatalogue(): Promise<CommandSpec[]>
   deviceCommands(deviceId: string): Promise<CommandRow[]>
   issueCommand(deviceId: string, command: string, payload?: unknown): Promise<CommandRow>
@@ -463,6 +489,8 @@ export function createApi(
           q: q.q,
           state: q.state,
           shopId: q.shopId,
+          platform: q.platform,
+          version: q.appVersion,
           sort: q.sort,
           dir: q.dir,
           limit: q.limit,
@@ -507,8 +535,26 @@ export function createApi(
       await post(`/fleet/alerts/${encodeURIComponent(id)}/ack`)
     },
 
+    evaluateAlerts: async () => {
+      await post('/fleet/alerts/evaluate')
+    },
+
     audit: async (limit = 100) =>
       (await call<{ entries: AuditRow[] }>(`/fleet/audit${query({ limit })}`)).entries,
+
+    operators: async () =>
+      (await call<{ operators: OperatorAccount[] }>('/fleet/operators')).operators,
+
+    createOperator: async (input) =>
+      (await post<{ operator: Operator }>('/fleet/operators', input)).operator,
+
+    setOperatorActive: async (id, active) => {
+      await post(`/fleet/operators/${encodeURIComponent(id)}/active`, { active })
+    },
+
+    setOperatorPassword: async (id, password) => {
+      await post(`/fleet/operators/${encodeURIComponent(id)}/password`, { password })
+    },
 
     commandCatalogue: async () =>
       (await call<{ commands: CommandSpec[] }>('/fleet/commands')).commands,
