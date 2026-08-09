@@ -55,6 +55,15 @@ const FIELDS: FieldSpec[] = [
     max: 1440,
   },
   {
+    key: 'pullStaleMs',
+    label: 'Not receiving sync after',
+    hint: 'A till that has gone this long without a successful pull is missing what its peers record.',
+    unit: 'minutes',
+    factor: 60_000,
+    min: 1,
+    max: 1440,
+  },
+  {
     key: 'recentErrorWindowMs',
     label: 'Error recency window',
     hint: 'Only errors still open and seen inside this window count against health.',

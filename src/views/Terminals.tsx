@@ -171,6 +171,8 @@ export function Terminals({
           { header: 'Key verified', value: (d) => (d.keyVerified ? 'yes' : 'no') },
           { header: 'Sync pending', value: (d) => d.syncPending },
           { header: 'Sync failed', value: (d) => d.syncFailed },
+          { header: 'Last pulled', value: (d) => d.lastPulledAt },
+          { header: 'Pull rejected', value: (d) => d.pullQuarantined },
           { header: 'Sales today (GHS)', value: (d) => ((d.salesTodayPesewas ?? 0) / 100).toFixed(2) },
           { header: 'Sales count today', value: (d) => d.salesTodayCount },
           { header: 'Open errors', value: (d) => d.recentOpenErrorGroups },
@@ -616,12 +618,31 @@ export function Pager({
 function syncCell(d: DeviceRow) {
   const pending = d.syncPending ?? 0
   const failed = d.syncFailed ?? 0
+
+  // The INBOUND side comes first, because it is the failure this column used to
+  // hide. Every reading below it is outbox — what the till still owes us — and a
+  // till that owes nothing read "Clear" while its pull had been dead for a day
+  // and it was quietly missing every sale its peers made. A terminal that cannot
+  // receive is in worse trouble than one with a few rows queued to send.
+  if (d.reasons.some((r) => r.code === 'pull_stale')) {
+    return (
+      <>
+        <Chip tone="bad">Not receiving</Chip>
+        {d.lastPulledAt && <div className="row-sub">{timeAgo(d.lastPulledAt)}</div>}
+      </>
+    )
+  }
+
   if (d.syncPending == null && d.syncFailed == null) return <span className="muted">—</span>
   if (failed > 0) return <Chip tone="bad">{failed} failed</Chip>
   // A queue only earns a chip once it crosses a threshold; the server already
   // decided that, so mirror its verdict rather than inventing a second rule.
   const flagged = d.reasons.some((r) => r.code === 'sync_stuck' || r.code === 'sync_deep')
   if (flagged) return <Chip tone="warn">{pending} queued</Chip>
+
+  const parked = d.pullQuarantined ?? 0
+  if (parked > 0) return <Chip tone="warn">{parked} rejected</Chip>
+
   if (pending > 0) return <span className="muted">{pending} in flight</span>
   return <span className="muted">Clear</span>
 }

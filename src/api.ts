@@ -53,6 +53,8 @@ export interface HealthReason {
     | 'sync_failed'
     | 'sync_stuck'
     | 'sync_deep'
+    | 'pull_stale'
+    | 'pull_quarantined'
     | 'errors_recent'
     | 'unverified_key'
     | 'key_rejected'
@@ -76,6 +78,9 @@ export interface DeviceRow {
   syncFailed: number | null
   oldestPendingAgeMs: number | null
   lastSyncAt: string | null
+  /** Inbound sync: last successful pull, and rows received but not applied. */
+  lastPulledAt: string | null
+  pullQuarantined: number | null
   salesTodayCount: number | null
   salesTodayPesewas: number | null
   dbSizeBytes: number | null
@@ -283,6 +288,7 @@ export interface FleetThresholds {
   offlineAfterMs: number
   syncPendingDeep: number
   oldestPendingStuckMs: number
+  pullStaleMs: number
   recentErrorWindowMs: number
   errorSpikeGroups: number
   flatlineUptimeSec: number
