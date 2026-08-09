@@ -359,6 +359,111 @@ export interface ProvisionResult {
   expiresAt: string
 }
 
+/* ---- a shop's inventory, read and written on its behalf ---- */
+
+/** Server-computed shelf state — the same four words the shop's own app uses. */
+export type StockStatus = 'ok' | 'low' | 'out' | 'oversold'
+
+export interface ShopProduct {
+  id: string
+  name: string
+  category: string
+  barcode: string | null
+  /** Cedis, not pesewas: this list is rendered, never arithmetic'd. */
+  costPrice: number
+  sellingPrice: number
+  /** Sellable units on hand. Excludes lapsed lots — those are `expiredStock`. */
+  stock: number
+  expiredStock: number
+  sold: number
+  reorderLevel: number | null
+  packLabel: string | null
+  unitsPerPack: number | null
+  /** dd/mm/yyyy of the next lot out the door, or '' when nothing is dated. */
+  expiryDate: string
+  hidden: boolean
+  status: StockStatus
+}
+
+export interface ShopInventorySummary {
+  products: number
+  lowStock: number
+  outOfStock: number
+  oversold: number
+  hidden: number
+  unitsOnHand: number
+  expiredUnits: number
+}
+
+export interface ShopInventory {
+  summary: ShopInventorySummary
+  categories: string[]
+  products: ShopProduct[]
+}
+
+/** What a shop's books can be downloaded as. */
+export type ExportType = 'products' | 'sales' | 'profit' | 'tax' | 'wastage' | 'deadstock'
+export type ExportFormat = 'csv' | 'pdf'
+
+export interface ExportQuery {
+  type: ExportType
+  format?: ExportFormat
+  /** YYYY-MM-DD, inclusive at both ends. Ignored by the snapshot types. */
+  from?: string
+  to?: string
+}
+
+/** A downloaded file, still in memory — the caller decides where it goes. */
+export interface DownloadedFile {
+  filename: string
+  blob: Blob
+}
+
+/** One rejected row of a CSV import, reported with its line in the file. */
+export interface ImportRowError {
+  row: number
+  message: string
+  code?: string
+}
+
+export interface ImportResult {
+  imported: number
+  updated: number
+  failed: number
+  total: number
+  errors: ImportRowError[]
+}
+
+export interface NewProductInput {
+  name: string
+  category?: string
+  costPrice: number
+  sellingPrice: number
+  openingStock?: number
+  /** dd/mm/yyyy. Omitted or blank creates an undated lot. */
+  expiryDate?: string
+  barcode?: string | null
+  reorderLevel?: number | null
+  packLabel?: string | null
+  unitsPerPack?: number | null
+  tracksExpiry?: boolean
+}
+
+export interface ReceiveStockLine {
+  productId: string
+  costPrice: number
+  sellingPrice: number
+  stock: number
+  unit?: 'pack' | 'piece'
+  expiryDate?: string
+}
+
+export interface ReceiveStockInput {
+  supplier?: string
+  invoiceNumber?: string
+  lines: ReceiveStockLine[]
+}
+
 /* ----------------------------------------------------------------- errors */
 
 export class Unauthorized extends Error {}
@@ -440,6 +545,20 @@ export interface Api {
    */
   issueReconnectCode(shopId: string): Promise<{ reconnectCode: string; expiresAt: string }>
   revokeStoreKey(keyId: string): Promise<void>
+
+  /* -- a shop's inventory, on its behalf -- */
+
+  shopInventory(shopId: string): Promise<ShopInventory>
+  /**
+   * Fetch one of the shop's books as a file. Returned rather than saved so the
+   * caller can name the download, show an error inline, or (later) preview it —
+   * a bare `window.open` would have carried no Authorization header anyway.
+   */
+  shopExport(shopId: string, query: ExportQuery): Promise<DownloadedFile>
+  importShopProducts(shopId: string, csv: string): Promise<ImportResult>
+  importShopBatches(shopId: string, csv: string): Promise<ImportResult>
+  createShopProduct(shopId: string, input: NewProductInput): Promise<ShopProduct>
+  receiveShopStock(shopId: string, input: ReceiveStockInput): Promise<void>
 }
 
 /**
@@ -483,10 +602,18 @@ export function createApi(
     return refreshing
   }
 
-  async function call<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
+  /**
+   * One authorised request, refresh-and-retry included, returning the raw
+   * Response. Split out from `call` because not every endpoint answers with
+   * JSON — the export routes answer with a file, and a download must ride the
+   * same session handling as everything else rather than reinvent it.
+   */
+  async function request(path: string, init?: RequestInit, retried = false): Promise<Response> {
     const res = await fetch(`${session.apiBase}${path}`, {
       ...init,
       headers: {
+        // A caller that sets its own Content-Type (the CSV importers) wins:
+        // `init.headers` is spread after this default.
         ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
         ...init?.headers,
         Authorization: `Bearer ${session.accessToken}`,
@@ -494,7 +621,7 @@ export function createApi(
     })
 
     if (res.status === 401 && !retried) {
-      if (await refresh()) return call<T>(path, init, true)
+      if (await refresh()) return request(path, init, true)
       hooks.onExpired()
       throw new Unauthorized('Session expired')
     }
@@ -503,11 +630,21 @@ export function createApi(
       throw new Unauthorized('Session expired')
     }
     if (!res.ok) throw await failure(res)
-    return res.json() as Promise<T>
+    return res
   }
+
+  const call = async <T>(path: string, init?: RequestInit): Promise<T> =>
+    (await request(path, init)).json() as Promise<T>
 
   const post = <T>(path: string, body?: unknown) =>
     call<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
+
+  /** POST a raw spreadsheet — the importers take the file as the body. */
+  const postCsv = <T>(path: string, csv: string) =>
+    call<T>(path, { method: 'POST', body: csv, headers: { 'Content-Type': 'text/csv' } })
+
+  const shopPath = (shopId: string, suffix: string) =>
+    `/api/stores/${encodeURIComponent(shopId)}${suffix}`
 
   const query = (params: Record<string, string | number | undefined>): string => {
     const qs = new URLSearchParams()
@@ -661,5 +798,47 @@ export function createApi(
     revokeStoreKey: async (keyId) => {
       await post(`/api/stores/keys/${encodeURIComponent(keyId)}/revoke`)
     },
+
+    shopInventory: (shopId) => call<ShopInventory>(shopPath(shopId, '/inventory')),
+
+    shopExport: async (shopId, q) => {
+      const res = await request(
+        shopPath(
+          shopId,
+          `/export${query({ type: q.type, format: q.format, from: q.from, to: q.to })}`,
+        ),
+      )
+      return {
+        filename: filenameOf(res, `${q.type}.${q.format ?? 'csv'}`),
+        blob: await res.blob(),
+      }
+    },
+
+    importShopProducts: (shopId, csv) =>
+      postCsv<ImportResult>(shopPath(shopId, '/import/products'), csv),
+
+    importShopBatches: (shopId, csv) =>
+      postCsv<ImportResult>(shopPath(shopId, '/import/batches'), csv),
+
+    createShopProduct: (shopId, input) =>
+      post<ShopProduct>(shopPath(shopId, '/products'), input),
+
+    receiveShopStock: async (shopId, input) => {
+      await post(shopPath(shopId, '/batches'), input)
+    },
   }
+}
+
+/**
+ * The name the server chose for a download, from `Content-Disposition`.
+ *
+ * Falls back to the caller's guess rather than failing: the header is only
+ * readable cross-origin because the API explicitly exposes it, and a dashboard
+ * pointed at an older droplet should still save the file — under a duller name
+ * — instead of throwing on the way to the disk.
+ */
+function filenameOf(res: Response, fallback: string): string {
+  const header = res.headers.get('Content-Disposition') ?? ''
+  const match = /filename="([^"]+)"/.exec(header)
+  return match?.[1] ?? fallback
 }

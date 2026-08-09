@@ -1860,6 +1860,121 @@ tbody tr[data-clickable='true']:hover .chev {
 }
 
 /* =============================================================================
+   a shop's inventory — downloads, imports, and the catalogue behind them
+   ============================================================================= */
+
+/* The drawer supplies its own padding, so a form inside one drops the panel
+   chrome `.form-grid` wears at the top of a full-width view. */
+.form-grid.inset {
+  padding: 0;
+  background: none;
+  border-bottom: 0;
+  max-width: none;
+}
+
+textarea.input {
+  min-height: 96px;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+select.input {
+  cursor: pointer;
+}
+
+/* A row of counts. Chips, not a KPI grid: these are read as a sentence about
+   the shelf, and half of them are absent on a healthy shop. */
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stock-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.stock-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+
+.stock-list li:first-child {
+  border-top: 0;
+}
+
+.stock-main {
+  min-width: 0;
+}
+
+/* Quantity above its state word, right-aligned so the numbers form a column
+   the eye can run down. */
+.stock-qty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The receive-stock form unfurls under the row it belongs to, spanning the
+   whole grid so its fields aren't squeezed into the name column. */
+.stock-form {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px 14px;
+  margin: 4px 0 8px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.import-result {
+  margin-top: 14px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+/* A rejected row is the one thing in this panel someone must act on, so the
+   block carries a red edge — the count chip alone reads as trivia. */
+.import-result[data-failed='true'] {
+  border-color: var(--bad-line);
+}
+
+.import-errors {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
+}
+
+.import-errors li {
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+
+.import-errors .mono {
+  color: var(--ink);
+}
+
+/* =============================================================================
    reduced motion — every animation has a still alternative, none is removed
    in a way that hides state
    ============================================================================= */

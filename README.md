@@ -145,6 +145,42 @@ with a name against it. Commands expire, only one of each can be outstanding per
 terminal, and a device on the shared enrollment key is never sent any — its
 identity is asserted rather than proven.
 
+## A shop's inventory
+
+Open a shop's drawer and the last three sections are its stock, not its
+machines: what the catalogue holds, a download of any of its books, and a way
+to put inventory in on the shop's behalf. Onboarding a corner shop includes
+"send us your stock list and we'll load it", and doing that over the phone
+through their own admin app was the only option before.
+
+Downloads (`GET /api/stores/:shopId/export`) cover **products & stock**,
+**sales**, **profit**, **tax**, **wastage** and **dead stock**, as CSV or PDF —
+the same builder the shop's own Reports → Export uses, so the file a support
+engineer opens is the file the owner sees. They read the cloud copy, so they
+hold everything the shop's tills have synced and nothing a till is still
+holding offline. Every download is audited.
+
+Writes need the `operator` role and go through the same services as the shop's
+own admin app: a products CSV, a stock-received CSV, one product, or one
+delivery. Two things follow from the architecture and are worth knowing before
+pressing the button:
+
+- **They reach the tills on their own.** Nothing is special-cased downward. The
+  ingest triggers announce a vendor-written row on the shop's change feed
+  exactly like one that arrived from a till, and each terminal's pulldown
+  applies it within about a minute. A shop that hasn't claimed a machine yet
+  receives the same rows through `bootstrap` when it does — so a catalogue can
+  be loaded *before* the shop has a till.
+- **The shop's own stock log names the owner.** `stock_movement.actor_id` is a
+  foreign key into that shop's staff and an operator is not one of them;
+  inventing a shadow staff member to satisfy it would put a stranger in their
+  team list. Who really did it lives in `fleet_audit_log`.
+
+One trap the panel warns about in place: on the products import, `Stock
+Quantity` against a product that already exists is **received**, not asserted —
+so an exported sheet fed straight back doubles the shelf. Blank that column to
+edit names and prices without moving stock.
+
 ## Watching the watcher
 
 A monitor cannot alert on its own death. Two outward-facing signals cover it:

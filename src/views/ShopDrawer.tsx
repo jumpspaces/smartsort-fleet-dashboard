@@ -14,6 +14,7 @@ import {
 } from '../components/ui.tsx'
 import { exact, timeAgo, timeUntil } from '../lib/format.ts'
 import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
+import { ShopInventoryPanels } from './ShopInventory.tsx'
 
 export function ShopDrawer({
   api,
@@ -270,6 +271,11 @@ export function ShopDrawer({
           reconnect it by claiming again with the owner’s sign-in.
         </p>
       </DrawerSection>
+
+      {/* Last, and deliberately below the identity sections: this is the part
+          that reaches into the shop's own books rather than describing their
+          machines, so it comes after everything that only reports. */}
+      <ShopInventoryPanels api={api} shop={shop} onUnauthorized={onUnauthorized} />
     </Drawer>
   )
 }

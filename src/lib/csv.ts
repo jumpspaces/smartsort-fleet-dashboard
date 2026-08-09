@@ -1,4 +1,5 @@
 /** Minimal CSV export — a snapshot to hand to someone outside this console. */
+import { downloadBlob } from './download.ts'
 
 export interface CsvColumn<T> {
   header: string
@@ -22,13 +23,5 @@ export function toCsv<T>(rows: T[], columns: CsvColumn<T>[]): string {
 export function downloadCsv(filename: string, csv: string): void {
   // A leading BOM so Excel opens UTF-8 as UTF-8 instead of guessing Latin-1
   // and mangling anything outside ASCII.
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  downloadBlob(filename, new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }))
 }
