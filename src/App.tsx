@@ -9,14 +9,17 @@ import { Icon, type IconName } from './components/Icon.tsx'
 import { Mark } from './components/Mark.tsx'
 import { Button } from './components/ui.tsx'
 import { duration, hostOf } from './lib/format.ts'
-import { useRoute, type View } from './lib/route.ts'
+import { PARENT, useRoute, type View } from './lib/route.ts'
 import { useTheme, type ThemePref } from './lib/theme.ts'
 import { Alerts } from './views/Alerts.tsx'
 import { Audit } from './views/Audit.tsx'
 import { Commands } from './views/Commands.tsx'
+import { Device } from './views/Device.tsx'
+import { ErrorGroup } from './views/ErrorGroup.tsx'
 import { Errors } from './views/Errors.tsx'
 import { Login } from './views/Login.tsx'
 import { Operators } from './views/Operators.tsx'
+import { Shop } from './views/Shop.tsx'
 import { Shops } from './views/Shops.tsx'
 import { Terminals } from './views/Terminals.tsx'
 
@@ -87,7 +90,7 @@ function Dashboard({
   onRenewed: (s: Session) => void
   onSignOut: () => void
 }) {
-  const { route, navigate, replace } = useRoute()
+  const { route, navigate, replace, back } = useRoute()
   const view = route.view
   const [overview, setOverview] = useState<Overview | null>(null)
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
@@ -129,7 +132,9 @@ function Dashboard({
       <Sidebar
         apiBase={api.apiBase}
         operator={session.operator}
-        view={view}
+        // A detail page belongs to its list, so the rail keeps that section lit
+        // rather than going blank the moment you open something.
+        view={PARENT[view] ?? view}
         onView={navigate}
         overview={overview}
         updatedAt={updatedAt}
@@ -140,8 +145,39 @@ function Dashboard({
 
       <main className="main">
         <div className="view">
-          {view === 'shops' ? (
-            <Shops api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
+          {view === 'device' ? (
+            <Device
+              // Remount per terminal: a page carrying another one's loaded
+              // history and errors while the new ones arrive is worse than
+              // a moment of skeleton.
+              key={route.params.id}
+              api={api}
+              deviceId={route.params.id ?? ''}
+              reloadKey={reloadKey}
+              onNavigate={navigate}
+              onBack={() => back('terminals')}
+            />
+          ) : view === 'shop' ? (
+            <Shop
+              key={route.params.id}
+              api={api}
+              shopId={route.params.id ?? ''}
+              reloadKey={reloadKey}
+              onNavigate={navigate}
+              onBack={() => back('shops')}
+              onUnauthorized={onSignOut}
+            />
+          ) : view === 'error' ? (
+            <ErrorGroup
+              key={route.params.id}
+              api={api}
+              fingerprint={route.params.id ?? ''}
+              reloadKey={reloadKey}
+              onNavigate={navigate}
+              onBack={() => back('errors')}
+            />
+          ) : view === 'shops' ? (
+            <Shops api={api} reloadKey={reloadKey} onNavigate={navigate} />
           ) : view === 'errors' ? (
             <Errors api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
           ) : view === 'alerts' ? (

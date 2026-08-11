@@ -10,7 +10,6 @@ import { cedis, duration, exact, timeAgo } from '../lib/format.ts'
 import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 import { useDebounced } from '../lib/useDebounced.ts'
 import { useHotkey } from '../lib/useHotkey.ts'
-import { DeviceDrawer } from './DeviceDrawer.tsx'
 import { Rollout } from './Rollout.tsx'
 
 type SortKey = 'state' | 'shop' | 'version' | 'sync' | 'sales' | 'errors' | 'lastSeen'
@@ -33,14 +32,13 @@ export function Terminals({
   onNavigate: Navigate
   onReplace: (params: Record<string, string | undefined>) => void
 }) {
-  // The URL is the source of truth for everything shareable: filters, sort, page
-  // and which drawer is open. A link to a broken terminal is the single most
-  // useful thing one operator can send another.
+  // The URL is the source of truth for everything shareable: filters, sort and
+  // page. A link to this exact list is the single most useful thing one operator
+  // can send another — and opening a terminal from it is a page of its own.
   const filter = (route.params.state as Filter | undefined) ?? 'all'
   const shopId = route.params.shopId
   const platform = route.params.platform
   const appVersion = route.params.version
-  const openDeviceId = route.params.device
   const offset = Number(route.params.offset ?? 0) || 0
   const sort: Sort<SortKey> = {
     key: (route.params.sort as SortKey | undefined) ?? 'state',
@@ -53,7 +51,6 @@ export function Terminals({
   const [rows, setRows] = useState<DeviceRow[] | null>(null)
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<DeviceRow | null>(null)
   const [exporting, setExporting] = useState(false)
 
   const searchRef = useRef<HTMLInputElement>(null)
@@ -100,23 +97,6 @@ export function Terminals({
     void load()
   }, [load, reloadKey])
 
-  // Deep-linked (?device=…): open that terminal's drawer, whether the link came
-  // from an alert, an error group, or somebody's chat message.
-  useEffect(() => {
-    if (!openDeviceId) {
-      setSelected(null)
-      return
-    }
-    let live = true
-    api
-      .device(openDeviceId)
-      .then((d) => live && setSelected(d))
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [api, openDeviceId])
-
   const counts = overview?.counts
   const filtering =
     filter !== 'all' || query.trim() !== '' || shopId != null || platform != null || appVersion != null
@@ -139,8 +119,7 @@ export function Terminals({
   const setPlatform = (next: string | undefined) => onReplace({ platform: next, offset: undefined })
   const setVersionFilter = (next: string | undefined) => onReplace({ version: next, offset: undefined })
 
-  const openDevice = (d: DeviceRow) => onReplace({ device: d.deviceId })
-  const closeDevice = () => onReplace({ device: undefined })
+  const openDevice = (d: DeviceRow) => onNavigate('device', { id: d.deviceId })
 
   async function exportCsv() {
     setExporting(true)
@@ -421,15 +400,6 @@ export function Terminals({
           </>
         )}
       </section>
-
-      {selected && (
-        <DeviceDrawer
-          api={api}
-          device={selected}
-          onClose={closeDevice}
-          onNavigate={onNavigate}
-        />
-      )}
     </>
   )
 }

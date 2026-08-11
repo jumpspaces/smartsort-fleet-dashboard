@@ -519,6 +519,8 @@ export interface Api {
   deviceHistory(deviceId: string, hours?: number): Promise<DeviceHistory>
   deviceErrors(deviceId: string): Promise<ErrorRow[]>
   errorGroups(query?: { status?: GroupStatus | 'all'; q?: string; limit?: number; offset?: number }): Promise<GroupPage>
+  /** One fault by fingerprint, whether or not any current filter would list it. */
+  errorGroup(fingerprint: string): Promise<ErrorGroupRow>
   groupDevices(fingerprint: string): Promise<GroupDevice[]>
   setGroupStatus(
     fingerprint: string,
@@ -542,6 +544,12 @@ export interface Api {
   cancelCommand(id: string): Promise<void>
   commandHistory(query?: CommandHistoryQuery): Promise<CommandHistoryPage>
   shops(): Promise<ShopRow[]>
+  /**
+   * One shop by id. There is no single-shop endpoint — the list is the whole
+   * fleet's shops and is small — so this narrows the list rather than pretending
+   * to be a cheaper call than it is.
+   */
+  shop(shopId: string): Promise<ShopRow | null>
   provisionShop(input: ProvisionInput): Promise<ProvisionResult>
   reissueClaimCode(shopId: string): Promise<{ claimCode: string; expiresAt: string }>
   /**
@@ -702,6 +710,11 @@ export function createApi(
         `/fleet/errors${query({ status: q.status, q: q.q, limit: q.limit, offset: q.offset })}`,
       ),
 
+    errorGroup: async (fingerprint) =>
+      (
+        await call<{ group: ErrorGroupRow }>(`/fleet/errors/${encodeURIComponent(fingerprint)}`)
+      ).group,
+
     groupDevices: async (fingerprint) =>
       (
         await call<{ devices: GroupDevice[] }>(
@@ -788,6 +801,11 @@ export function createApi(
       ),
 
     shops: async () => (await call<{ shops: ShopRow[] }>('/api/stores')).shops,
+
+    shop: async (shopId) => {
+      const { shops } = await call<{ shops: ShopRow[] }>('/api/stores')
+      return shops.find((s) => s.id === shopId) ?? null
+    },
 
     provisionShop: (input) => post<ProvisionResult>('/api/stores/provision', input),
 

@@ -1,19 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Api, ErrorGroupRow, GroupDevice, GroupStatus } from '../api.ts'
+import type { Api, ErrorGroupRow, GroupStatus } from '../api.ts'
 import type { Navigate } from '../App.tsx'
 import type { Route } from '../lib/route.ts'
 import { Icon } from '../components/Icon.tsx'
-import {
-  Button,
-  Chip,
-  CopyButton,
-  Drawer,
-  DrawerSection,
-  Empty,
-  KV,
-  Notice,
-  TableSkeleton,
-} from '../components/ui.tsx'
+import { Button, Chip, Empty, Notice, TableSkeleton } from '../components/ui.tsx'
 import { downloadCsv, toCsv } from '../lib/csv.ts'
 import { exact, timeAgo } from '../lib/format.ts'
 import { GROUP_STATUS_LABEL, GROUP_STATUS_TONE } from '../lib/state.ts'
@@ -55,13 +45,11 @@ export function Errors({
 }) {
   const status = (route.params.status as GroupStatus | 'all' | undefined) ?? 'open'
   const offset = Number(route.params.offset ?? 0) || 0
-  const openFingerprint = route.params.fp
 
   const [query, setQuery] = useState(route.params.q ?? '')
   const [groups, setGroups] = useState<ErrorGroupRow[] | null>(null)
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<ErrorGroupRow | null>(null)
   const [exporting, setExporting] = useState(false)
 
   const searchRef = useRef<HTMLInputElement>(null)
@@ -96,25 +84,6 @@ export function Errors({
   useEffect(() => {
     void load()
   }, [load, reloadKey])
-
-  // Keep the open drawer bound to the URL, so a link to one fault opens it.
-  useEffect(() => {
-    if (!openFingerprint) {
-      setSelected(null)
-      return
-    }
-    const match = groups?.find((g) => g.fingerprint === openFingerprint)
-    if (match) setSelected(match)
-  }, [openFingerprint, groups])
-
-  const changeStatus = useCallback(
-    async (fingerprint: string, next: GroupStatus, version?: string | null) => {
-      await api.setGroupStatus(fingerprint, next, version)
-      onReplace({ fp: undefined })
-      await load()
-    },
-    [api, load, onReplace],
-  )
 
   async function exportCsv() {
     setExporting(true)
@@ -250,14 +219,18 @@ export function Errors({
                 </thead>
                 <tbody>
                   {groups.map((g) => (
-                    <tr key={g.id} data-clickable="true" onClick={() => onReplace({ fp: g.fingerprint })}>
+                    <tr
+                      key={g.id}
+                      data-clickable="true"
+                      onClick={() => onNavigate('error', { id: g.fingerprint })}
+                    >
                       <td>
                         <button
                           type="button"
                           className="row-open err-title"
                           onClick={(e) => {
                             e.stopPropagation()
-                            onReplace({ fp: g.fingerprint })
+                            onNavigate('error', { id: g.fingerprint })
                           }}
                         >
                           {g.message}
@@ -301,157 +274,6 @@ export function Errors({
           </>
         )}
       </section>
-
-      {selected && (
-        <GroupDrawer
-          api={api}
-          group={selected}
-          onClose={() => onReplace({ fp: undefined })}
-          onStatus={changeStatus}
-          onNavigate={onNavigate}
-        />
-      )}
     </>
-  )
-}
-
-/* -------------------------------------------------------------------- drawer */
-
-function GroupDrawer({
-  api,
-  group,
-  onClose,
-  onStatus,
-  onNavigate,
-}: {
-  api: Api
-  group: ErrorGroupRow
-  onClose: () => void
-  onStatus: (fingerprint: string, next: GroupStatus, version?: string | null) => Promise<void>
-  onNavigate: Navigate
-}) {
-  const [devices, setDevices] = useState<GroupDevice[] | null>(null)
-  const [fixVersion, setFixVersion] = useState(group.lastVersion ?? '')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let live = true
-    api
-      .groupDevices(group.fingerprint)
-      .then((d) => live && setDevices(d))
-      .catch(() => live && setDevices([]))
-    return () => {
-      live = false
-    }
-  }, [api, group.fingerprint])
-
-  async function act(next: GroupStatus) {
-    setBusy(true)
-    setError(null)
-    try {
-      await onStatus(group.fingerprint, next, next === 'resolved' ? fixVersion.trim() || null : null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update this error')
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Drawer
-      title={group.message}
-      subtitle={<span className="mono">{group.fingerprint.slice(0, 16)}</span>}
-      onClose={onClose}
-    >
-      <DrawerSection title="Triage">
-        <div className="drawer-status">
-          <Chip tone={GROUP_STATUS_TONE[group.status]}>{GROUP_STATUS_LABEL[group.status]}</Chip>
-          {group.regressedAt && <Chip tone="bad">Regressed {timeAgo(group.regressedAt)}</Chip>}
-          <CopyButton value={group.message} label="Copy message" />
-        </div>
-
-        {error && <Notice>{error}</Notice>}
-
-        {group.status === 'open' ? (
-          <div className="triage">
-            <label className="field">
-              <span>Fixed in version</span>
-              <input
-                className="input mono"
-                value={fixVersion}
-                onChange={(e) => setFixVersion(e.target.value)}
-                placeholder="1.5.2"
-              />
-              <span className="hint">
-                A terminal on this build or newer hitting it again re-opens this as a regression.
-                Older builds still hitting it are expected, and stay quiet.
-              </span>
-            </label>
-            <div className="form-actions">
-              <Button variant="primary" busy={busy} onClick={() => void act('resolved')}>
-                Mark resolved
-              </Button>
-              <Button variant="ghost" busy={busy} onClick={() => void act('ignored')}>
-                Ignore
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="form-actions">
-            <Button variant="primary" busy={busy} onClick={() => void act('open')}>
-              Re-open
-            </Button>
-            <span className="hint">
-              {group.status === 'resolved'
-                ? `Marked fixed${group.resolvedInVersion ? ` in ${group.resolvedInVersion}` : ''} ${timeAgo(group.resolvedAt)}` +
-                  `${group.resolvedByLabel ? ` by ${group.resolvedByLabel}` : ''}.`
-                : 'Ignored errors never count against terminal health.'}
-            </span>
-          </div>
-        )}
-      </DrawerSection>
-
-      <DrawerSection title="Detail">
-        <dl className="kv-list">
-          <KV k="Source" v={group.source ?? '—'} />
-          <KV k="Terminals affected" v={String(group.deviceCount)} />
-          <KV k="Total events" v={group.totalCount.toLocaleString()} />
-          <KV k="First seen" v={timeAgo(group.firstSeen)} title={exact(group.firstSeen)} />
-          <KV k="Last seen" v={timeAgo(group.lastSeen)} title={exact(group.lastSeen)} />
-          <KV k="First build" v={<span className="mono">{group.firstVersion ?? '—'}</span>} />
-          <KV k="Latest build" v={<span className="mono">{group.lastVersion ?? '—'}</span>} />
-        </dl>
-        {group.stack && <pre className="stack">{group.stack}</pre>}
-      </DrawerSection>
-
-      <DrawerSection title={devices?.length ? `Terminals (${devices.length})` : 'Terminals'}>
-        {devices == null ? (
-          <div className="skeleton" style={{ width: '50%' }} />
-        ) : devices.length === 0 ? (
-          <p className="muted small">No terminal rows — this fault's devices have been pruned.</p>
-        ) : (
-          <ul className="plain-list">
-            {devices.map((d) => (
-              <li key={d.deviceId}>
-                <button
-                  type="button"
-                  className="row-open mono"
-                  onClick={() => {
-                    onClose()
-                    onNavigate('terminals', { deviceId: d.deviceId })
-                  }}
-                >
-                  {d.deviceId.slice(0, 16)}
-                </button>
-                <span className="muted small">
-                  ×{d.count} · v{d.appVersion ?? '?'} · last{' '}
-                  <span title={exact(d.lastSeen)}>{timeAgo(d.lastSeen)}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </DrawerSection>
-    </Drawer>
   )
 }

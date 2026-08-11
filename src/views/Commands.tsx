@@ -162,7 +162,7 @@ export function Commands({
                         <button
                           type="button"
                           className="row-open"
-                          onClick={() => onNavigate('terminals', { device: c.deviceId })}
+                          onClick={() => onNavigate('device', { id: c.deviceId })}
                         >
                           {c.shopName ?? 'Unclaimed terminal'}
                         </button>

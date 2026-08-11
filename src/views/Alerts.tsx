@@ -225,7 +225,7 @@ export function Alerts({
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => onNavigate('terminals', { device: a.deviceId! })}
+                      onClick={() => onNavigate('device', { id: a.deviceId! })}
                     >
                       <Icon name="link" size={14} />
                       Terminal

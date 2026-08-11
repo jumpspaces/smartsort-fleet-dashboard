@@ -164,68 +164,71 @@ export function KV({ k, v, title }: { k: string; v: ReactNode; title?: string })
   )
 }
 
-/* ------------------------------------------------------------------ drawer */
+/* -------------------------------------------------------------------- page */
 
 /**
- * Native `<dialog>` in modal mode. That buys the focus trap, Escape, inert
- * background and top-layer stacking from the platform, which is both less code
- * and more correct than the div-with-a-backdrop this replaces.
+ * The head of a detail page: where you are, one level up, and what you can do
+ * to it. The back link is a real control rather than a reliance on the browser's
+ * — these pages are linked to directly from alerts, errors and chat messages, so
+ * arriving with no history behind you is the normal case, not the edge one.
  */
-export function Drawer({
+export function PageHead({
+  back,
   title,
   subtitle,
-  onClose,
-  children,
+  actions,
 }: {
+  back: { label: string; onClick: () => void }
   title: ReactNode
   subtitle?: ReactNode
-  onClose: () => void
-  children: ReactNode
+  actions?: ReactNode
 }) {
-  const ref = useRef<HTMLDialogElement>(null)
-
-  useEffect(() => {
-    const el = ref.current
-    if (el && !el.open) el.showModal()
-  }, [])
-
   return (
-    <dialog
-      ref={ref}
-      className="drawer"
-      aria-label={typeof title === 'string' ? title : undefined}
-      onCancel={(e) => {
-        // Let React own the open state rather than the DOM closing behind it.
-        e.preventDefault()
-        onClose()
-      }}
-      onClick={(e) => {
-        // In the top layer the backdrop is part of the dialog's own box, so a
-        // click landing on the element itself is a click outside the panel.
-        if (e.target === ref.current) onClose()
-      }}
-    >
-      <div className="drawer-inner">
-        <div className="drawer-head">
-          <div style={{ minWidth: 0 }}>
-            <h2 className="drawer-title">{title}</h2>
-            {subtitle && <div className="row-sub">{subtitle}</div>}
-          </div>
-          <Button variant="ghost" className="btn-icon" onClick={onClose} aria-label="Close">
-            <Icon name="close" />
-          </Button>
-        </div>
-        <div className="drawer-body">{children}</div>
+    <div className="view-head">
+      <div style={{ minWidth: 0 }}>
+        <button type="button" className="backlink" onClick={back.onClick}>
+          <Icon name="chevron" size={13} className="backlink-chev" />
+          {back.label}
+        </button>
+        <h1 className="view-title">{title}</h1>
+        {subtitle && <div className="view-sub">{subtitle}</div>}
       </div>
-    </dialog>
+      {actions && <div className="head-actions">{actions}</div>}
+    </div>
   )
 }
 
-export function DrawerSection({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * One titled block of a page. Detail used to live in a drawer where a rule under
+ * a heading was enough separation; at full width the same sections need to be
+ * distinct objects, or they read as one unbroken column of prose.
+ */
+export function Card({
+  title,
+  actions,
+  children,
+}: {
+  title: string
+  actions?: ReactNode
+  children: ReactNode
+}) {
   return (
-    <section className="drawer-section">
-      <h3>{title}</h3>
-      {children}
+    <section className="panel">
+      <div className="panel-head">
+        <h2 className="panel-title">{title}</h2>
+        {actions}
+      </div>
+      <div className="panel-body">{children}</div>
     </section>
+  )
+}
+
+/** A detail page's two columns: the substance, and the reference material. */
+export function Columns({ main, side }: { main: ReactNode; side: ReactNode }) {
+  return (
+    <div className="detail">
+      <div className="detail-col">{main}</div>
+      <div className="detail-col detail-side">{side}</div>
+    </div>
   )
 }

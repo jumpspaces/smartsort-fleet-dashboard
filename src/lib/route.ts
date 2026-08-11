@@ -15,9 +15,40 @@ import { useCallback, useEffect, useState } from 'react'
  * router dependency — the whole grammar is `#/view?a=b`.
  */
 
-export type View = 'terminals' | 'shops' | 'errors' | 'alerts' | 'commands' | 'operators' | 'audit'
+export type View =
+  | 'terminals'
+  | 'device'
+  | 'shops'
+  | 'shop'
+  | 'errors'
+  | 'error'
+  | 'alerts'
+  | 'commands'
+  | 'operators'
+  | 'audit'
 
-const VIEWS: View[] = ['terminals', 'shops', 'errors', 'alerts', 'commands', 'operators', 'audit']
+const VIEWS: View[] = [
+  'terminals',
+  'device',
+  'shops',
+  'shop',
+  'errors',
+  'error',
+  'alerts',
+  'commands',
+  'operators',
+  'audit',
+]
+
+/**
+ * Detail views are pages of their own, but they are still *inside* a section:
+ * the rail must keep the parent lit, and their back link must know where up is.
+ */
+export const PARENT: Partial<Record<View, View>> = {
+  device: 'terminals',
+  shop: 'shops',
+  error: 'errors',
+}
 
 export interface Route {
   view: View
@@ -25,6 +56,18 @@ export interface Route {
 }
 
 const DEFAULT_ROUTE: Route = { view: 'terminals', params: {} }
+
+/**
+ * Links minted while detail was a drawer over its list, of the shape
+ * `#/terminals?device=…`. Operators paste these into chat and tickets, so they
+ * outlive the UI that made them: translate rather than dropping someone on an
+ * unfiltered list with no sign that anything was meant to open.
+ */
+const LEGACY: { list: View; param: string; page: View }[] = [
+  { list: 'terminals', param: 'device', page: 'device' },
+  { list: 'shops', param: 'shop', page: 'shop' },
+  { list: 'errors', param: 'fp', page: 'error' },
+]
 
 export function parseHash(hash: string): Route {
   const raw = hash.replace(/^#\/?/, '')
@@ -38,6 +81,10 @@ export function parseHash(hash: string): Route {
   for (const [k, v] of new URLSearchParams(search)) {
     if (v !== '') params[k] = v
   }
+
+  const legacy = LEGACY.find((l) => l.list === view && params[l.param])
+  if (legacy) return { view: legacy.page, params: { id: params[legacy.param] } }
+
   return { view, params }
 }
 
@@ -54,27 +101,50 @@ export function buildHash(route: Route): string {
 }
 
 /**
- * The current route, and two ways to change it.
+ * What we hang on each history entry. `from` is the hash we left to get here,
+ * which is what lets a detail page's back link return to the *filtered* list
+ * somebody was actually looking at rather than a bare, unfiltered one.
+ */
+interface Entry {
+  depth: number
+  from: string | null
+}
+
+function entry(): Entry {
+  const s = window.history.state as Partial<Entry> | null
+  return {
+    depth: typeof s?.depth === 'number' ? s.depth : 0,
+    from: typeof s?.from === 'string' ? s.from : null,
+  }
+}
+
+/**
+ * The current route, and three ways to change it.
  *
  * `navigate` pushes — a new place, so Back returns to where you were.
  * `replace` swaps — the same place, refined. Typing six characters into a search
  * box is one destination, not six, and must not take six presses of Back to
  * escape.
+ * `back` goes up one level, preferring the history entry we came from when that
+ * is the parent list, so its filters, sort and page survive the round trip.
  */
 export function useRoute(): {
   route: Route
   navigate: (view: View, params?: Record<string, string | undefined>) => void
   replace: (params: Record<string, string | undefined>) => void
+  back: (parent: View) => void
 } {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash))
 
   useEffect(() => {
     const onHashChange = () => setRoute(parseHash(window.location.hash))
     window.addEventListener('hashchange', onHashChange)
-    // The first load may have no hash at all; give it one so Back has somewhere
-    // to return to and the address bar reflects what is on screen.
-    if (!window.location.hash) {
-      window.history.replaceState(null, '', buildHash(route))
+    // Canonicalise what we landed on: no hash at all, an unknown view, or a
+    // legacy drawer link. The address bar has to say what is actually on screen,
+    // or the next person copies a URL that no longer means what it shows.
+    const canonical = buildHash(route)
+    if (window.location.hash !== canonical) {
+      window.history.replaceState(entry() satisfies Entry, '', canonical)
     }
     return () => window.removeEventListener('hashchange', onHashChange)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
@@ -83,8 +153,13 @@ export function useRoute(): {
   const apply = useCallback((next: Route, mode: 'push' | 'replace') => {
     const hash = buildHash(next)
     if (hash === window.location.hash) return
-    if (mode === 'push') window.history.pushState(null, '', hash)
-    else window.history.replaceState(null, '', hash)
+    const here = entry()
+    if (mode === 'push') {
+      const state: Entry = { depth: here.depth + 1, from: window.location.hash }
+      window.history.pushState(state, '', hash)
+    } else {
+      window.history.replaceState(here satisfies Entry, '', hash)
+    }
     // pushState/replaceState do not fire hashchange, so drive state directly.
     setRoute(next)
   }, [])
@@ -102,7 +177,7 @@ export function useRoute(): {
         const next = { view: cur.view, params: clean({ ...cur.params, ...params }) }
         const hash = buildHash(next)
         if (hash !== window.location.hash) {
-          window.history.replaceState(null, '', hash)
+          window.history.replaceState(entry() satisfies Entry, '', hash)
         }
         return next
       })
@@ -110,7 +185,22 @@ export function useRoute(): {
     [],
   )
 
-  return { route, navigate, replace }
+  const back = useCallback(
+    (parent: View) => {
+      const here = entry()
+      // Only step back when the previous entry really is the list we belong to.
+      // Otherwise — a deep link, or arriving from an alert — go there fresh;
+      // stepping back blindly would land somewhere unrelated or leave the app.
+      if (here.depth > 0 && here.from && parseHash(here.from).view === parent) {
+        window.history.back()
+        return
+      }
+      apply({ view: parent, params: {} }, 'push')
+    },
+    [apply],
+  )
+
+  return { route, navigate, replace, back }
 }
 
 /** Drop empty and undefined values so they never reach the URL. */

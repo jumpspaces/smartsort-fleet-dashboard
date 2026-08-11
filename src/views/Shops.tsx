@@ -1,63 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Unauthorized,
-  type Api,
-  type ProvisionResult,
-  type ShopRow,
-} from '../api.ts'
+import { Unauthorized, type Api, type ShopRow } from '../api.ts'
 import type { Navigate } from '../App.tsx'
-import type { Route } from '../lib/route.ts'
 import { Icon } from '../components/Icon.tsx'
 import { compare, PlainHeader, SortHeader, type Sort } from '../components/SortHeader.tsx'
-import {
-  Button,
-  Chip,
-  CopyButton,
-  Empty,
-  Notice,
-  Status,
-  TableSkeleton,
-} from '../components/ui.tsx'
+import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
 import { exact, timeAgo, timeUntil } from '../lib/format.ts'
 import { useHotkey } from '../lib/useHotkey.ts'
-import { ShopDrawer } from './ShopDrawer.tsx'
+import { ClaimPanel, type ClaimResult } from './ClaimCode.tsx'
 
 type SortKey = 'status' | 'name' | 'code' | 'machines' | 'created'
 
-/** Provisioning + the one-time code, kept together so the panel can show both. */
-export type ClaimResult = ProvisionResult & { shopName: string }
-
-/**
- * Which kind of one-time code is on screen.
- *
- *   claim      activation — redeeming it sets the owner's password
- *   reconnect  attaches another machine to a live shop and grants nothing else
- */
-type CodeKind = 'claim' | 'reconnect'
-
 export function Shops({
   api,
-  route,
   reloadKey,
   onNavigate,
-  onReplace,
 }: {
   api: Api
-  route: Route
   reloadKey: number
   onNavigate: Navigate
-  onReplace: (params: Record<string, string | undefined>) => void
 }) {
   const [shops, setShops] = useState<ShopRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  // A one-time code to show once, and which kind it is — the panel's wording
-  // has to differ because an activation code sets the owner's password and a
-  // reconnect code deliberately does not.
-  const [result, setResult] = useState<(ClaimResult & { kind: CodeKind }) | null>(null)
-  const [selected, setSelected] = useState<ShopRow | null>(null)
+  // The code minted by onboarding, shown once. Codes re-issued for an existing
+  // shop appear on that shop's own page, where the button for them lives.
+  const [result, setResult] = useState<ClaimResult | null>(null)
   const [query, setQuery] = useState('')
-  const openShopId = route.params.shop
   const [sort, setSort] = useState<Sort<SortKey>>({ key: 'status', dir: 'asc' })
   const searchRef = useRef<HTMLInputElement>(null)
   useHotkey('/', () => searchRef.current?.focus())
@@ -67,8 +35,6 @@ export function Shops({
       const shops = await api.shops()
       setShops(shops)
       setError(null)
-      // The open drawer re-derives from the URL + this list, so a refresh keeps
-      // it in sync without a second copy of that logic here.
     } catch (err) {
       // The API client already drops the session on an unrecoverable 401; this
       // just avoids painting a scary message over a sign-in screen.
@@ -81,15 +47,9 @@ export function Shops({
     void refresh()
   }, [refresh, reloadKey])
 
-  // The open drawer lives in the URL like every other bit of view state, so a
-  // shop's page can be linked to directly.
-  useEffect(() => {
-    setSelected(openShopId ? ((shops ?? []).find((s) => s.id === openShopId) ?? null) : null)
-  }, [openShopId, shops])
-
   const onProvisioned = useCallback(
     (r: ClaimResult) => {
-      setResult({ ...r, kind: 'claim' })
+      setResult(r)
       setFormOpen(false)
       void refresh()
     },
@@ -156,7 +116,9 @@ export function Shops({
           />
         )}
 
-        {result && <ClaimPanel result={result} onDismiss={() => setResult(null)} />}
+        {result && (
+          <ClaimPanel result={{ ...result, kind: 'claim' }} onDismiss={() => setResult(null)} />
+        )}
 
         <div className="toolbar">
           <div className="search">
@@ -227,7 +189,11 @@ export function Shops({
               </thead>
               <tbody>
                 {visible.map((s) => (
-                  <tr key={s.id} data-clickable="true" onClick={() => onReplace({ shop: s.id })}>
+                  <tr
+                    key={s.id}
+                    data-clickable="true"
+                    onClick={() => onNavigate('shop', { id: s.id })}
+                  >
                     <td>
                       <Status
                         tone={s.activated ? 'ok' : 'warn'}
@@ -241,7 +207,7 @@ export function Shops({
                         className="row-open"
                         onClick={(e) => {
                           e.stopPropagation()
-                          onReplace({ shop: s.id })
+                          onNavigate('shop', { id: s.id })
                         }}
                       >
                         {s.name}
@@ -289,29 +255,6 @@ export function Shops({
           </div>
         )}
       </section>
-
-      {selected && (
-        <ShopDrawer
-          api={api}
-          shop={selected}
-          onClose={() => onReplace({ shop: undefined })}
-          onChanged={refresh}
-          onNavigate={onNavigate}
-          onUnauthorized={() => {}}
-          onReissued={(r) => {
-            setResult({
-              claimCode: r.code,
-              expiresAt: r.expiresAt,
-              kind: r.kind,
-              shopId: selected.id,
-              shopCode: selected.code ?? '',
-              ownerId: '',
-              shopName: selected.name,
-            })
-            onReplace({ shop: undefined })
-          }}
-        />
-      )}
     </>
   )
 }
@@ -457,68 +400,5 @@ function OnboardForm({
         </span>
       </div>
     </form>
-  )
-}
-
-/**
- * Shown once, right after provisioning or issuing a code. It is read down a
- * phone line or written on an invoice and cannot be recovered, so it gets
- * display size, a copy button, and copy that says plainly this is the only
- * showing.
- *
- * The two kinds are worded apart on purpose. An operator reading one of these
- * out is about to tell a shop what it does, and the difference is the whole
- * safety story: a claim code hands over the owner's password, a reconnect code
- * hands over nothing but the machine.
- */
-function ClaimPanel({
-  result,
-  onDismiss,
-}: {
-  result: ClaimResult & { kind: CodeKind }
-  onDismiss: () => void
-}) {
-  const reconnect = result.kind === 'reconnect'
-  return (
-    <div className="claim">
-      <div className="muted small">
-        {reconnect ? 'One-time connect code for ' : 'One-time claim code for '}
-        <span className="strong">{result.shopName}</span>
-      </div>
-      <div className="claim-row">
-        <span className="claim-code">{result.claimCode}</span>
-        <CopyButton value={result.claimCode} label="Copy code" size="md" />
-        <Button variant="ghost" onClick={onDismiss}>
-          Done
-        </Button>
-      </div>
-      <p className="hint">
-        {reconnect ? (
-          <>
-            Give this to the shop — on the desktop app they choose{' '}
-            <span className="strong">Owner not available?</span> and enter it. It connects
-            the machine only: it sets no password and signs nobody in, so staff still need
-            their own login afterwards. It works once and expires{' '}
-            <span className="strong">{timeUntil(result.expiresAt)}</span>. You won’t be able
-            to see it again.
-          </>
-        ) : (
-          <>
-            Give this to the shop — they enter it on the desktop app to connect the machine
-            and set the owner’s password. It works once and expires{' '}
-            <span className="strong">{timeUntil(result.expiresAt)}</span>. You won’t be able
-            to see it again.
-          </>
-        )}
-      </p>
-      {result.shopCode && !reconnect && (
-        <p className="hint" style={{ marginTop: 8 }}>
-          Their <span className="strong">shop code</span> is{' '}
-          <span className="mono strong">{result.shopCode}</span> — the owner types this with their
-          staff ID to sign in to the mobile app. It doesn’t expire, and it stays visible in this
-          list.
-        </p>
-      )}
-    </div>
   )
 }

@@ -32,7 +32,7 @@ import {
   type StockStatus,
 } from '../api.ts'
 import { Icon } from '../components/Icon.tsx'
-import { Button, Chip, DrawerSection, Empty, Notice, type Tone } from '../components/ui.tsx'
+import { Button, Card, Chip, Empty, Notice, type Tone } from '../components/ui.tsx'
 import { downloadCsv } from '../lib/csv.ts'
 import { downloadBlob } from '../lib/download.ts'
 import { useDebounced } from '../lib/useDebounced.ts'
@@ -117,7 +117,7 @@ export function ShopInventoryPanels({
     <>
       {error && <Notice>{error}</Notice>}
 
-      <DrawerSection title="Inventory">
+      <Card title="Inventory">
         {loadError ? (
           <p className="muted small">{loadError}</p>
         ) : inventory == null ? (
@@ -132,17 +132,17 @@ export function ShopInventoryPanels({
             onChanged={load}
           />
         )}
-      </DrawerSection>
+      </Card>
 
-      <DrawerSection title="Download">
+      <Card title="Download">
         <Downloads api={api} shop={shop} busy={busy} run={run} />
-      </DrawerSection>
+      </Card>
 
       {/* Reading a shop's books and writing to them are different permissions,
           and the difference should be visible before the button, not delivered
           as a 403 after it. */}
       {api.operator.role !== 'viewer' && (
-        <DrawerSection title="Add inventory">
+        <Card title="Add inventory">
           <AddInventory
             api={api}
             shop={shop}
@@ -152,7 +152,7 @@ export function ShopInventoryPanels({
             run={run}
             onChanged={load}
           />
-        </DrawerSection>
+        </Card>
       )}
     </>
   )
@@ -160,7 +160,7 @@ export function ShopInventoryPanels({
 
 /* ============================================================== catalogue == */
 
-/** How many rows the drawer shows before asking you to search instead. */
+/** How many rows the page shows before asking you to search instead. */
 const VISIBLE_ROWS = 25
 
 function Catalogue({

@@ -1047,7 +1047,10 @@ tbody tr[data-clickable='true']:has(.row-open:focus-visible) {
   text-align: left;
   cursor: pointer;
 }
-.row-open::after {
+/* Deliberately scoped to table rows: this stretches the link over its whole
+   row, and the same class outside a table (a list item, an error's title) has
+   no positioned ancestor to stretch within — it would cover the page. */
+tbody .row-open::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -1232,6 +1235,9 @@ tbody tr[data-clickable='true']:hover .chev {
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
 }
+.claim:last-child {
+  border-bottom: 0;
+}
 .claim-code {
   font-family: var(--font-mono);
   font-size: var(--t-3xl);
@@ -1250,96 +1256,79 @@ tbody tr[data-clickable='true']:hover .chev {
 }
 
 /* =============================================================================
-   drawer — native <dialog>, so focus trapping, Escape and the top layer are
-   the platform's job rather than ours
+   detail pages — a terminal, a shop, a fault. These were drawers over their
+   lists, which made the deepest content in the console the most cramped and
+   froze the list behind it. They are pages now: two columns where there is room
+   for two, one where there isn't, and the same panel chrome as everything else.
    ============================================================================= */
 
-.drawer {
-  margin: 0 0 0 auto;
-  width: min(600px, 100%);
-  max-width: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
-  padding: 0;
-  border: 0;
-  border-left: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-  opacity: 0;
-  transform: translateX(14px);
-  transition:
-    opacity var(--dur) var(--ease),
-    transform var(--dur-slow) var(--ease),
-    overlay var(--dur-slow) var(--ease) allow-discrete,
-    display var(--dur-slow) var(--ease) allow-discrete;
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: 20px;
+  align-items: start;
 }
-.drawer[open] {
-  opacity: 1;
-  transform: translateX(0);
-}
-@starting-style {
-  .drawer[open] {
-    opacity: 0;
-    transform: translateX(14px);
-  }
-}
-.drawer::backdrop {
-  background: oklch(0.2 0.012 143 / 0.4);
-  backdrop-filter: blur(1.5px);
-  opacity: 0;
-  transition:
-    opacity var(--dur) var(--ease),
-    overlay var(--dur) var(--ease) allow-discrete,
-    display var(--dur) var(--ease) allow-discrete;
-}
-.drawer[open]::backdrop {
-  opacity: 1;
-}
-@starting-style {
-  .drawer[open]::backdrop {
-    opacity: 0;
-  }
-}
-:root[data-theme='dark'] .drawer::backdrop {
-  background: oklch(0.12 0.008 143 / 0.6);
+.detail-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.drawer-inner {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.drawer-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 18px 20px 14px;
-  border-bottom: 1px solid var(--line);
-}
-.drawer-title {
-  font-size: var(--t-lg);
-  letter-spacing: -0.016em;
-}
-.drawer-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 18px 20px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-}
-/* Title Case here too — five tracked all-caps eyebrows down one drawer is
-   scaffolding, not hierarchy. The rule above each does the separating. */
-.drawer-section > h3 {
-  font-size: var(--t-sm);
-  font-weight: 600;
+/* Up one level. It sits above the title where a breadcrumb would, because that
+   is where people look for it. */
+.backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  margin-left: -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
   color: var(--ink-muted);
-  padding-bottom: 8px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--line);
+  font: inherit;
+  font-size: var(--t-sm);
+  cursor: pointer;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.backlink:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.backlink-chev {
+  transform: rotate(180deg);
+}
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Panels on a detail page hold prose and definition lists rather than a
+   full-bleed table, so they supply the padding the table panels refuse. */
+.panel-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* The card owns the spacing between its children, so a block's own trailing
+   margin would just double the last gap. */
+.panel-body > :last-child {
+  margin-bottom: 0;
+}
+
+/* A stack trace given a card of its own is the thing being read, not a footnote
+   under something else — so it gets the height a page can afford. */
+.panel-body > .stack {
+  margin-top: 0;
+  max-height: min(60vh, 520px);
 }
 
 /* Label left, value right, one per line. An auto-fit tile grid was the first
@@ -1440,6 +1429,14 @@ tbody tr[data-clickable='true']:hover .chev {
   }
 }
 
+/* The aside is a fixed column, so it has to fold before it starts squeezing the
+   substance next to it — earlier than the sidebar's own breakpoint. */
+@media (max-width: 1180px) {
+  .detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* The sidebar becomes a top bar rather than a hamburger: two destinations do
    not justify hiding navigation behind a tap. */
 @media (max-width: 860px) {
@@ -1498,10 +1495,6 @@ tbody tr[data-clickable='true']:hover .chev {
   }
   .toolbar-end {
     margin-left: 0;
-  }
-  .drawer {
-    width: 100%;
-    border-left: 0;
   }
   .health-keys {
     gap: 2px;
@@ -1793,7 +1786,7 @@ tbody tr[data-clickable='true']:hover .chev {
    shared small pieces
    ============================================================================= */
 
-.drawer-status {
+.card-status {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1825,7 +1818,7 @@ tbody tr[data-clickable='true']:hover .chev {
   gap: 10px;
 }
 
-/* Error message as a table cell: one line, ellipsised, full text in the drawer. */
+/* Error message as a table cell: one line, ellipsised, full text on its page. */
 .err-title {
   display: block;
   max-width: 46ch;
@@ -1863,8 +1856,8 @@ tbody tr[data-clickable='true']:hover .chev {
    a shop's inventory — downloads, imports, and the catalogue behind them
    ============================================================================= */
 
-/* The drawer supplies its own padding, so a form inside one drops the panel
-   chrome `.form-grid` wears at the top of a full-width view. */
+/* A card supplies its own padding, so a form inside one drops the panel chrome
+   `.form-grid` wears at the top of a full-width view. */
 .form-grid.inset {
   padding: 0;
   background: none;
