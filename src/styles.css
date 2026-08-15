@@ -1833,6 +1833,76 @@ tbody tr[data-clickable='true']:hover .chev {
 }
 
 /* =============================================================================
+   timeline
+   ============================================================================= */
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.timeline-day {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 14px 0 6px;
+}
+.timeline-item:first-child .timeline-day {
+  margin-top: 0;
+}
+.timeline-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.timeline-dot {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--ink-muted);
+}
+.timeline-dot[data-severity='warning'] {
+  background: var(--warn-bg);
+  border-color: var(--warn-line);
+  color: var(--warn);
+}
+.timeline-dot[data-severity='critical'] {
+  background: var(--bad-bg);
+  border-color: var(--bad-line);
+  color: var(--bad);
+}
+.timeline-title {
+  overflow-wrap: anywhere;
+}
+.timeline-detail {
+  font-size: var(--t-xs);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* Compact density — an ops table people sit in front of all day. Rows lose
+   padding, nothing loses information. */
+:root[data-density='compact'] td,
+:root[data-density='compact'] th {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+:root[data-density='compact'] .row-sub {
+  display: none;
+}
+:root[data-density='compact'] .panel-body {
+  padding: 12px 14px;
+}
+
+/* =============================================================================
    command palette
    ============================================================================= */
 

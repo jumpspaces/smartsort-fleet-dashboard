@@ -58,6 +58,7 @@ export interface HealthReason {
     | 'errors_recent'
     | 'disk_low'
     | 'backup_stale'
+    | 'clock_skew'
     | 'unverified_key'
     | 'key_rejected'
   label: string
@@ -104,6 +105,8 @@ export interface DeviceRow {
   lastBackupAt: string | null
   backupSizeBytes: number | null
   backupError: string | null
+  /** Local minus cloud, in ms; positive means this till runs ahead. */
+  clockSkewMs: number | null
   /** Server-computed. */
   state: FleetState
   reasons: HealthReason[]
@@ -332,6 +335,98 @@ export interface ShopSlo {
   worstDay: { day: string; uptimeBps: number } | null
 }
 
+/* ---- one terminal's story, in order ---- */
+
+export type TimelineKind =
+  | 'alert_opened'
+  | 'alert_resolved'
+  | 'command'
+  | 'note'
+  | 'mute'
+  | 'version'
+  | 'error'
+  | 'rollout'
+
+export interface TimelineEvent {
+  at: string
+  kind: TimelineKind
+  title: string
+  detail: string | null
+  severity: 'warning' | 'critical' | null
+  actor: string | null
+}
+
+/* ---- detection rules ---- */
+
+export interface RuleRow {
+  key: string
+  label: string
+  description: string
+  enabled: boolean
+  severity: 'warning' | 'critical' | null
+  runbookUrl: string | null
+  notes: string | null
+  updatedBy: string | null
+}
+
+/* ---- fleet-wide reads that rank rather than list ---- */
+
+export interface VersionScore {
+  version: string
+  devices: number
+  offline: number
+  faultGroups: number
+  faultDevices: number
+  occurrences: number
+  /** Terminals on this build that reported nothing wrong, as a percentage. */
+  cleanPct: number
+}
+
+export interface WorstOffender {
+  deviceId: string
+  shopId: string | null
+  shopName: string | null
+  uptimeBps: number
+  days: number
+  downtimeHours: number
+}
+
+export interface ShopQuality {
+  shopId: string
+  shopName: string
+  oversold: number
+  expiredLots: number
+  expiredUnits: number
+  staleShifts: number
+  oldestShiftHours: number | null
+  losingMoney: number
+  issues: number
+}
+
+export interface SyncPressureRow {
+  deviceId: string
+  shopId: string | null
+  shopName: string | null
+  syncPending: number | null
+  syncFailed: number | null
+  oldestPendingAgeMs: number | null
+  lastPulledAt: string | null
+  pullQuarantined: number | null
+  lastReportAt: string
+}
+
+export interface Digest {
+  day: string
+  terminals: number
+  offline: number
+  alertsOpened: number
+  criticalsOpen: number
+  salesPesewas: number
+  worstShops: { shopName: string | null; uptimeBps: number }[]
+  neverBackedUp: number
+  lines: string[]
+}
+
 export interface BackupTerminal {
   deviceId: string
   shopId: string | null
@@ -413,6 +508,10 @@ export interface AlertRow {
   resolvedAt: string | null
   notifiedAt: string | null
   notifyError: string | null
+  /** Devices this one alert stands in for, when it is a shop-level rollup. */
+  rollupCount: number | null
+  escalatedAt: string | null
+  escalations: number
 }
 
 export interface CommandSpec {
@@ -536,6 +635,11 @@ export interface FleetConfigRow extends FleetThresholds {
   quietTimezone: string
   quietBreakthrough: 'critical' | 'none'
   sloTargetBps: number
+  stormShopDevices: number
+  escalateAfterMs: number
+  escalateMaxTimes: number
+  digestHour: number | null
+  digestSentAt: string | null
 }
 
 /** Quiet hours and the availability target — routing, not detection. */
@@ -545,6 +649,10 @@ export interface FleetSettings {
   quietTimezone: string
   quietBreakthrough: 'critical' | 'none'
   sloTargetBps: number
+  stormShopDevices: number
+  escalateAfterMs: number
+  escalateMaxTimes: number
+  digestHour: number | null
 }
 
 export interface AuditRow {
@@ -820,6 +928,23 @@ export interface Api {
 
   /* -- history and promises -- */
 
+  timeline(deviceId: string, days?: number): Promise<TimelineEvent[]>
+  rules(): Promise<RuleRow[]>
+  updateRule(
+    ruleKey: string,
+    patch: {
+      enabled?: boolean
+      severity?: 'warning' | 'critical' | null
+      runbookUrl?: string | null
+    },
+  ): Promise<void>
+  resetRule(ruleKey: string): Promise<void>
+  versionScores(): Promise<VersionScore[]>
+  worstOffenders(days?: number, limit?: number): Promise<WorstOffender[]>
+  quality(): Promise<ShopQuality[]>
+  syncPressure(): Promise<SyncPressureRow[]>
+  digest(): Promise<Digest>
+  sendDigest(): Promise<Digest>
   trends(days?: number): Promise<FleetTrends>
   slo(days?: number): Promise<{ targetBps: number; days: number; shops: ShopSlo[] }>
   backups(): Promise<BackupTerminal[]>
@@ -1148,6 +1273,40 @@ export function createApi(
       ).deliveries,
 
     /* -- history and promises -- */
+
+    timeline: async (deviceId, days = 14) =>
+      (
+        await call<{ events: TimelineEvent[] }>(
+          `/fleet/devices/${encodeURIComponent(deviceId)}/timeline${query({ days })}`,
+        )
+      ).events,
+
+    rules: async () => (await call<{ rules: RuleRow[] }>('/fleet/rules')).rules,
+
+    updateRule: async (ruleKey, patch) => {
+      await call(`/fleet/rules/${encodeURIComponent(ruleKey)}`, {
+        method: 'PUT',
+        body: JSON.stringify(patch),
+      })
+    },
+
+    resetRule: async (ruleKey) => {
+      await call(`/fleet/rules/${encodeURIComponent(ruleKey)}`, { method: 'DELETE' })
+    },
+
+    versionScores: async () => (await call<{ versions: VersionScore[] }>('/fleet/versions')).versions,
+
+    worstOffenders: async (days = 30, limit = 10) =>
+      (await call<{ devices: WorstOffender[] }>(`/fleet/worst${query({ days, limit })}`)).devices,
+
+    quality: async () => (await call<{ shops: ShopQuality[] }>('/fleet/quality')).shops,
+
+    syncPressure: async () =>
+      (await call<{ devices: SyncPressureRow[] }>('/fleet/sync-pressure')).devices,
+
+    digest: async () => (await call<{ digest: Digest }>('/fleet/digest')).digest,
+
+    sendDigest: async () => (await post<{ digest: Digest }>('/fleet/digest/send')).digest,
 
     trends: (days = 30) => call<FleetTrends>(`/fleet/trends${query({ days })}`),
 

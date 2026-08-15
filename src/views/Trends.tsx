@@ -15,9 +15,17 @@
  * ordered, so a sequential ramp is also the honest encoding: newest is darkest.
  */
 import { useEffect, useState } from 'react'
-import type { Api, FleetTrends, ShopSlo, TrendDay } from '../api.ts'
+import type {
+  Api,
+  FleetTrends,
+  ShopSlo,
+  TrendDay,
+  VersionScore,
+  WorstOffender,
+} from '../api.ts'
 import type { Navigate } from '../App.tsx'
 import { Button, Card, Chip, Empty, Notice, TableSkeleton } from '../components/ui.tsx'
+import { downloadCsv, toCsv } from '../lib/csv.ts'
 import { bps, cedis, duration } from '../lib/format.ts'
 
 /**
@@ -45,15 +53,24 @@ export function Trends({
   const [days, setDays] = useState(30)
   const [trends, setTrends] = useState<FleetTrends | null>(null)
   const [slo, setSlo] = useState<{ targetBps: number; shops: ShopSlo[] } | null>(null)
+  const [versions, setVersions] = useState<VersionScore[] | null>(null)
+  const [worst, setWorst] = useState<WorstOffender[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
-    void Promise.all([api.trends(days), api.slo(days)])
-      .then(([t, s]) => {
+    void Promise.all([
+      api.trends(days),
+      api.slo(days),
+      api.versionScores(),
+      api.worstOffenders(days, 10),
+    ])
+      .then(([t, s, v, w]) => {
         if (!live) return
         setTrends(t)
         setSlo(s)
+        setVersions(v)
+        setWorst(w)
         setError(null)
       })
       .catch((err: unknown) =>
@@ -76,18 +93,44 @@ export function Trends({
             it.
           </p>
         </div>
-        <div className="filters" role="group" aria-label="Range">
-          {RANGES.map((r) => (
-            <button
-              key={r.days}
-              type="button"
-              className="key"
-              aria-pressed={days === r.days}
-              onClick={() => setDays(r.days)}
-            >
-              {r.label}
-            </button>
-          ))}
+        <div className="head-actions">
+          <div className="filters" role="group" aria-label="Range">
+            {RANGES.map((r) => (
+              <button
+                key={r.days}
+                type="button"
+                className="key"
+                aria-pressed={days === r.days}
+                onClick={() => setDays(r.days)}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          {/* The figures leave as a file, because the argument they settle
+              usually happens in a spreadsheet somebody else owns. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!trends || !slo}
+            onClick={() => {
+              if (!trends) return
+              downloadCsv(
+                `fleet-trends-${new Date().toISOString().slice(0, 10)}.csv`,
+                toCsv(trends.days, [
+                  { header: 'Day', value: (d) => d.day },
+                  { header: 'Uptime %', value: (d) => (d.uptimeBps == null ? '' : (d.uptimeBps / 100).toFixed(2)) },
+                  { header: 'Terminals', value: (d) => d.devices },
+                  { header: 'Sales count', value: (d) => d.salesCount },
+                  { header: 'Sales (GHS)', value: (d) => (d.salesPesewas / 100).toFixed(2) },
+                  { header: 'Alerts opened', value: (d) => d.alertsOpened },
+                  { header: 'Criticals', value: (d) => d.criticalOpened },
+                ]),
+              )
+            }}
+          >
+            Export CSV
+          </Button>
         </div>
       </div>
 
@@ -150,6 +193,97 @@ export function Trends({
 
           <Card title="Version mix">
             <VersionMix trends={trends} />
+          </Card>
+
+          {/* Adoption alone says nothing about whether a build is any good. This
+              is the pair of numbers that decides whether to keep rolling. */}
+          <Card title="How each build is behaving">
+            {versions == null ? (
+              <TableSkeleton rows={3} />
+            ) : versions.length === 0 ? (
+              <p className="muted small">No terminal has reported a version yet.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Version</th>
+                      <th className="col-num">Terminals</th>
+                      <th className="col-num">Clean</th>
+                      <th className="col-num">Distinct faults</th>
+                      <th className="col-num">Terminals hitting one</th>
+                      <th className="col-num">Offline now</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versions.map((v) => (
+                      <tr key={v.version}>
+                        <td className="mono">{v.version}</td>
+                        <td className="col-num">{v.devices}</td>
+                        <td className="col-num">
+                          {v.cleanPct >= 95 ? (
+                            <Chip tone="ok">{v.cleanPct}%</Chip>
+                          ) : v.cleanPct >= 80 ? (
+                            <Chip tone="warn">{v.cleanPct}%</Chip>
+                          ) : (
+                            <Chip tone="bad">{v.cleanPct}%</Chip>
+                          )}
+                        </td>
+                        <td className="col-num muted">{v.faultGroups}</td>
+                        <td className="col-num muted">{v.faultDevices}</td>
+                        <td className="col-num muted">{v.offline}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
+          {/* The machine an average is designed to hide: forty healthy tills and
+              one that is down half the time average out to "fine". */}
+          <Card title="Worst terminals">
+            {worst == null ? (
+              <TableSkeleton rows={3} />
+            ) : worst.length === 0 ? (
+              <p className="muted small">Not enough history to rank anything yet.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Terminal</th>
+                      <th className="col-num">Availability</th>
+                      <th className="col-num">Trading hours lost</th>
+                      <th className="col-num">Days measured</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {worst.map((w) => (
+                      <tr
+                        key={w.deviceId}
+                        data-clickable="true"
+                        onClick={() => onNavigate('device', { id: w.deviceId })}
+                      >
+                        <td>
+                          <span className="strong">{w.shopName ?? 'Unclaimed terminal'}</span>
+                          <div className="row-sub mono">{w.deviceId.slice(0, 12)}</div>
+                        </td>
+                        <td className="col-num">
+                          {w.uptimeBps < 9500 ? (
+                            <Chip tone="bad">{bps(w.uptimeBps, 1)}</Chip>
+                          ) : (
+                            bps(w.uptimeBps, 1)
+                          )}
+                        </td>
+                        <td className="col-num">{w.downtimeHours}h</td>
+                        <td className="col-num muted">{w.days}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
 
           <Card

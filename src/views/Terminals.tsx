@@ -11,7 +11,9 @@ import { bytes, cedis, duration, exact, timeAgo, timeUntil } from '../lib/format
 import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 import { useDebounced } from '../lib/useDebounced.ts'
 import { useHotkey } from '../lib/useHotkey.ts'
+import { BulkActions } from './BulkActions.tsx'
 import { Rollout } from './Rollout.tsx'
+import { SavedViews } from './SavedViews.tsx'
 
 type SortKey = 'state' | 'shop' | 'version' | 'sync' | 'sales' | 'errors' | 'lastSeen' | 'disk'
 type Filter = 'all' | FleetState
@@ -257,10 +259,29 @@ export function Terminals({
           </div>
 
           <div className="toolbar-end">
+            <BulkActions
+              api={api}
+              query={{
+                q: debouncedQuery.trim() || undefined,
+                state: filter,
+                shopId,
+                platform,
+                appVersion,
+                tag,
+                muted,
+              }}
+              total={total}
+              canAct={api.operator.role !== 'viewer'}
+              onDone={() => void load()}
+            />
             <Button size="sm" variant="ghost" busy={exporting} onClick={() => void exportCsv()}>
               Export CSV
             </Button>
           </div>
+
+          {/* One person's habitual lists. Local to this browser on purpose —
+              they are shortcuts, not fleet configuration. */}
+          <SavedViews currentHash={window.location.hash.replace(/^#/, '')} />
 
           {/* The rings an operator has defined. Shown only once something is
               tagged — an empty vocabulary is a row of chrome explaining a

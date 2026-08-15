@@ -27,6 +27,7 @@ export type View =
   | 'rollouts'
   | 'trends'
   | 'backups'
+  | 'quality'
   | 'operators'
   | 'audit'
 
@@ -42,6 +43,7 @@ const VIEWS: View[] = [
   'rollouts',
   'trends',
   'backups',
+  'quality',
   'operators',
   'audit',
 ]

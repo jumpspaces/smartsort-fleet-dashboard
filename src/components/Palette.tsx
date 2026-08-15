@@ -20,7 +20,7 @@ import { Icon, type IconName } from './Icon.tsx'
 
 export interface PaletteAction {
   id: string
-  group: 'Go to' | 'Terminals' | 'Shops'
+  group: 'Go to' | 'Terminals' | 'Shops' | 'Errors'
   label: string
   hint?: string
   icon: IconName
@@ -35,6 +35,7 @@ const SECTIONS: { view: View; label: string; icon: IconName }[] = [
   { view: 'rollouts', label: 'Rollouts', icon: 'rocket' },
   { view: 'trends', label: 'Trends', icon: 'trend' },
   { view: 'backups', label: 'Backups', icon: 'shield' },
+  { view: 'quality', label: 'Books & queues', icon: 'shops' },
   { view: 'commands', label: 'Commands', icon: 'prompt' },
   { view: 'audit', label: 'Audit', icon: 'list' },
 ]
@@ -88,7 +89,8 @@ export function Palette({
       void Promise.all([
         api.devices({ q: term, limit: 6 }).catch(() => null),
         api.shops().catch(() => null),
-      ]).then(([devices, shops]) => {
+        api.errorGroups({ status: 'all', q: term, limit: 4 }).catch(() => null),
+      ]).then(([devices, shops, errors]) => {
         if (!live) return
         const out: PaletteAction[] = []
         for (const d of devices?.devices ?? []) {
@@ -118,7 +120,19 @@ export function Palette({
             run: () => go('shop', { id: s.id }),
           })
         }
-        setRemote(out.slice(0, 12))
+        // Faults last: somebody typing a shop name wants the shop, and a
+        // message that happens to contain the same word must not outrank it.
+        for (const g of errors?.groups ?? []) {
+          out.push({
+            id: `error:${g.fingerprint}`,
+            group: 'Errors',
+            label: g.message.slice(0, 90),
+            hint: g.status,
+            icon: 'bug',
+            run: () => go('error', { id: g.fingerprint }),
+          })
+        }
+        setRemote(out.slice(0, 16))
       })
     }, 160)
     return () => {

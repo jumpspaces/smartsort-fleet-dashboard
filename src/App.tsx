@@ -10,11 +10,14 @@ import { Mark } from './components/Mark.tsx'
 import { Button } from './components/ui.tsx'
 import { duration, hostOf } from './lib/format.ts'
 import { PARENT, useRoute, type View } from './lib/route.ts'
+import { useDensity } from './lib/density.ts'
 import { useTheme, type ThemePref } from './lib/theme.ts'
 import { Palette } from './components/Palette.tsx'
+import { Shortcuts } from './components/Shortcuts.tsx'
 import { Alerts } from './views/Alerts.tsx'
 import { Audit } from './views/Audit.tsx'
 import { Backups } from './views/Backups.tsx'
+import { Quality } from './views/Quality.tsx'
 import { Commands } from './views/Commands.tsx'
 import { Rollouts } from './views/Rollouts.tsx'
 import { Trends } from './views/Trends.tsx'
@@ -134,11 +137,24 @@ function Dashboard({
   // ⌘K / Ctrl-K anywhere. Registered on the shell rather than inside the
   // palette so it works from any view, including one with a focused input.
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((open) => !open)
+        return
+      }
+      // `?` only when nobody is typing — otherwise it steals the character from
+      // the search box, which is where people are most likely to press it.
+      const target = e.target as HTMLElement | null
+      const typing =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable === true
+      if (e.key === '?' && !typing) {
+        e.preventDefault()
+        setShortcutsOpen((open) => !open)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -208,6 +224,8 @@ function Dashboard({
             <Trends api={api} reloadKey={reloadKey} onNavigate={navigate} />
           ) : view === 'backups' ? (
             <Backups api={api} reloadKey={reloadKey} onNavigate={navigate} />
+          ) : view === 'quality' ? (
+            <Quality api={api} reloadKey={reloadKey} onNavigate={navigate} />
           ) : view === 'operators' ? (
             <Operators api={api} onUnauthorized={onSignOut} />
           ) : view === 'audit' ? (
@@ -228,6 +246,7 @@ function Dashboard({
       {paletteOpen && (
         <Palette api={api} onNavigate={navigate} onClose={() => setPaletteOpen(false)} />
       )}
+      {shortcutsOpen && <Shortcuts onClose={() => setShortcutsOpen(false)} />}
     </div>
   )
 }
@@ -256,6 +275,7 @@ function Sidebar({
   onSignOut: () => void
 }) {
   const [theme, setTheme] = useTheme()
+  const [density, setDensity] = useDensity()
   const since = useTicker(updatedAt != null)
   const age = updatedAt == null ? null : since - updatedAt
   const stale = age == null || age > STALE_MS
@@ -287,6 +307,7 @@ function Sidebar({
     { id: 'rollouts', label: 'Rollouts', icon: 'rocket', count: null },
     { id: 'trends', label: 'Trends', icon: 'trend', count: null },
     { id: 'backups', label: 'Backups', icon: 'shield', count: null },
+    { id: 'quality', label: 'Books', icon: 'shops', count: null },
     { id: 'commands', label: 'Commands', icon: 'prompt', count: null },
     { id: 'audit', label: 'Audit', icon: 'list', count: null },
     ...(operator.role === 'admin'
@@ -338,6 +359,15 @@ function Sidebar({
 
         <div className="sidebar-actions">
           <ThemeToggle theme={theme} onTheme={setTheme} />
+          <Button
+            variant="ghost"
+            className="btn-icon"
+            aria-label={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}
+            title={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}
+            onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')}
+          >
+            <Icon name="list" />
+          </Button>
           <Button
             variant="ghost"
             className="btn-icon"

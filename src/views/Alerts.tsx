@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AlertRow, Api, FleetConfigRow } from '../api.ts'
+import type { AlertRow, Api, DeliveryRow, FleetConfigRow, RuleRow } from '../api.ts'
 import type { Navigate } from '../App.tsx'
 import type { Route } from '../lib/route.ts'
 import { Icon } from '../components/Icon.tsx'
@@ -44,6 +44,7 @@ export function Alerts({
   const [busyId, setBusyId] = useState<string | null>(null)
   const [evaluating, setEvaluating] = useState(false)
   const [webhook, setWebhook] = useState<FleetConfigRow | null>(null)
+  const [rules, setRules] = useState<RuleRow[]>([])
 
   const load = useCallback(async () => {
     try {
@@ -57,6 +58,15 @@ export function Alerts({
   useEffect(() => {
     void load()
   }, [load, reloadKey])
+
+  // Runbook links, so a page arrives with what to do about it rather than only
+  // a description of the problem.
+  useEffect(() => {
+    void api
+      .rules()
+      .then(setRules)
+      .catch(() => setRules([]))
+  }, [api])
 
   useEffect(() => {
     let live = true
@@ -199,6 +209,17 @@ export function Alerts({
                       {ruleLabel(a.ruleKey)}
                     </Chip>
                     {a.notifyError && <Chip tone="bad">Not delivered</Chip>}
+                    {/* A rollup stands in for several terminals: saying so is
+                        what stops it reading as one till having a bad day. */}
+                    {a.rollupCount != null && a.rollupCount > 1 && (
+                      <Chip tone="bad">{a.rollupCount} terminals</Chip>
+                    )}
+                    {a.escalations > 0 && (
+                      <Chip tone="warn">
+                        Re-paged {a.escalations}×
+                      </Chip>
+                    )}
+                    <RunbookLink ruleKey={a.ruleKey} rules={rules} />
                   </div>
 
                   <div className="alert-title">{a.title}</div>
@@ -218,6 +239,11 @@ export function Alerts({
                     {a.notifiedAt && <span>· Notified {timeAgo(a.notifiedAt)}</span>}
                     {a.notifyError && <span className="bad-text">· {a.notifyError}</span>}
                   </div>
+
+                  {/* Where this page actually went, per channel. "Notified" is
+                      one bit; with several destinations the useful question is
+                      which of them heard, and a held one says when it will. */}
+                  <Deliveries api={api} alertId={a.id} />
                 </div>
 
                 <div className="alert-actions">
@@ -274,6 +300,78 @@ function WebhookHealth({ config }: { config: FleetConfigRow | null }) {
         <>Webhook delivering — last success {timeAgo(success)}</>
       )}
     </div>
+  )
+}
+
+/**
+ * Where this alert went, per channel — loaded on demand.
+ *
+ * "Notified 4m ago" is one bit of information and it was true when there was
+ * one destination. With several, the useful question is which of them actually
+ * heard: a room that took it, a pager that is failing, a phone whose message is
+ * held until the quiet window closes. A held delivery says when it will arrive,
+ * because "quiet" and "lost" must never look the same.
+ */
+function Deliveries({ api, alertId }: { api: Api; alertId: string }) {
+  const [rows, setRows] = useState<DeliveryRow[] | null>(null)
+  const [open, setOpen] = useState(false)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="row-open small"
+        onClick={() => {
+          setOpen(true)
+          void api
+            .alertDeliveries(alertId)
+            .then(setRows)
+            .catch(() => setRows([]))
+        }}
+      >
+        Where did this go?
+      </button>
+    )
+  }
+
+  if (rows == null) return <div className="skeleton" style={{ width: '40%', marginTop: 6 }} />
+  if (rows.length === 0) {
+    return (
+      <p className="muted small" style={{ marginTop: 6 }}>
+        No channel took this one — nothing is configured that wanted it.
+      </p>
+    )
+  }
+
+  return (
+    <ul className="plain-list" style={{ marginTop: 6 }}>
+      {rows.map((d) => (
+        <li key={d.id} className="muted small">
+          <b>{d.channelLabel}</b> · {d.direction}
+          {d.sentAt ? (
+            <span className="ok-text"> · delivered {timeAgo(d.sentAt)}</span>
+          ) : d.heldUntil ? (
+            <span> · held until {exact(d.heldUntil)}{d.lastError ? ` (${d.lastError})` : ''}</span>
+          ) : (
+            <span className="bad-text">
+              {' '}
+              · not delivered{d.attempts > 0 ? ` after ${d.attempts} attempt(s)` : ''}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** The link to what to do about this rule, when somebody has recorded one. */
+function RunbookLink({ ruleKey, rules }: { ruleKey: string; rules: RuleRow[] }) {
+  const rule = rules.find((r) => r.key === ruleKey)
+  if (!rule?.runbookUrl) return null
+  return (
+    <a className="row-open small" href={rule.runbookUrl} target="_blank" rel="noreferrer">
+      Runbook
+    </a>
   )
 }
 

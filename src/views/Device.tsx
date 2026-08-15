@@ -11,10 +11,19 @@
  * pasted into a chat opens the same page as a click from the table.
  */
 import { useCallback, useEffect, useState } from 'react'
-import type { Api, DeviceHistory, DeviceRow, ErrorRow, NoteRow } from '../api.ts'
+import type {
+  Api,
+  DeviceHistory,
+  DeviceRow,
+  ErrorRow,
+  NoteRow,
+  ShopRow,
+  TimelineEvent,
+} from '../api.ts'
 import type { Navigate } from '../App.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { Sparkline } from '../components/Sparkline.tsx'
+import { Timeline } from '../components/Timeline.tsx'
 import {
   Button,
   Card,
@@ -170,6 +179,21 @@ export function Device({
                   }
                 />
                 <KV
+                  k="Clock"
+                  v={
+                    device.clockSkewMs == null ? (
+                      <span className="muted">Not reported</span>
+                    ) : Math.abs(device.clockSkewMs) < 60_000 ? (
+                      <Chip tone="ok">In step</Chip>
+                    ) : (
+                      <Chip tone="warn">
+                        {duration(Math.abs(device.clockSkewMs))}{' '}
+                        {device.clockSkewMs > 0 ? 'ahead' : 'behind'}
+                      </Chip>
+                    )
+                  }
+                />
+                <KV
                   k="Reporting key"
                   v={
                     device.keyVerified ? (
@@ -272,6 +296,8 @@ export function Device({
               ))}
             </Card>
 
+            <History api={api} deviceId={deviceId} reloadKey={reloadKey} />
+
             <Notes api={api} deviceId={deviceId} reloadKey={reloadKey} />
           </>
         }
@@ -280,6 +306,8 @@ export function Device({
             <Card title="Actions">
               <DeviceActions api={api} device={device} canAct={api.operator.role !== 'viewer'} />
             </Card>
+
+            <ShopContact api={api} shopId={device.shopId} />
 
             <MuteCard api={api} device={device} onChanged={() => void load()} />
 
@@ -403,6 +431,98 @@ export function Device({
         }
       />
     </>
+  )
+}
+
+/* ------------------------------------------------------------- who to ring */
+
+/**
+ * The owner's name and telephone number, on the page somebody is looking at
+ * while they decide to telephone them.
+ *
+ * It exists two clicks away on the shop page. Two clicks is the difference
+ * between ringing the shop and writing "will call them tomorrow" — and this is
+ * the one card here whose content is a person rather than a machine.
+ */
+function ShopContact({ api, shopId }: { api: Api; shopId: string | null }) {
+  const [shop, setShop] = useState<ShopRow | null>(null)
+
+  useEffect(() => {
+    if (!shopId) return
+    void api
+      .shop(shopId)
+      .then(setShop)
+      .catch(() => setShop(null))
+  }, [api, shopId])
+
+  if (!shopId || !shop) return null
+
+  return (
+    <Card title="Who to ring">
+      <dl className="kv-list">
+        <KV k="Owner" v={shop.owner?.name ?? '—'} />
+        <KV
+          k="Phone"
+          v={
+            shop.phone ? (
+              // A real link: on a laptop with a soft phone this dials, and on
+              // everything else it is still the number, selectable.
+              <a href={`tel:${shop.phone.replace(/\s+/g, '')}`}>{shop.phone}</a>
+            ) : (
+              <span className="muted">Not recorded</span>
+            )
+          }
+        />
+        <KV k="Shop code" v={<span className="mono">{shop.code ?? '—'}</span>} />
+        <KV k="Location" v={shop.location ?? '—'} />
+        <KV
+          k="Terminals"
+          v={`${shop.health.healthy} healthy · ${shop.health.attention} attention · ${shop.health.offline} offline`}
+        />
+      </dl>
+    </Card>
+  )
+}
+
+/* ----------------------------------------------------------------- history */
+
+/** The interleaved story. Fourteen days by default — a support call's memory. */
+function History({ api, deviceId, reloadKey }: { api: Api; deviceId: string; reloadKey: number }) {
+  const [events, setEvents] = useState<TimelineEvent[] | null>(null)
+  const [days, setDays] = useState(14)
+
+  useEffect(() => {
+    void api
+      .timeline(deviceId, days)
+      .then(setEvents)
+      .catch(() => setEvents([]))
+  }, [api, deviceId, days, reloadKey])
+
+  return (
+    <Card
+      title="What happened"
+      actions={
+        <div className="filters" role="group" aria-label="Window">
+          {[7, 14, 30].map((d) => (
+            <button
+              key={d}
+              type="button"
+              className="key"
+              aria-pressed={days === d}
+              onClick={() => setDays(d)}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {events == null ? (
+        <div className="skeleton" style={{ width: '60%' }} />
+      ) : (
+        <Timeline events={events} />
+      )}
+    </Card>
   )
 }
 
