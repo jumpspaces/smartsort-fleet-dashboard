@@ -11,7 +11,7 @@
  * pasted into a chat opens the same page as a click from the table.
  */
 import { useCallback, useEffect, useState } from 'react'
-import type { Api, DeviceHistory, DeviceRow, ErrorRow } from '../api.ts'
+import type { Api, DeviceHistory, DeviceRow, ErrorRow, NoteRow } from '../api.ts'
 import type { Navigate } from '../App.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { Sparkline } from '../components/Sparkline.tsx'
@@ -28,7 +28,7 @@ import {
   Status,
   TableSkeleton,
 } from '../components/ui.tsx'
-import { cedis, duration, exact, timeAgo } from '../lib/format.ts'
+import { bytes, cedis, duration, exact, timeAgo, timeUntil } from '../lib/format.ts'
 import { severityTone, STATE_LABEL, TONE } from '../lib/state.ts'
 import { DeviceActions } from './DeviceActions.tsx'
 
@@ -88,7 +88,16 @@ export function Device({
       <PageHead
         back={back}
         title={device.shopName ?? 'Unclaimed terminal'}
-        subtitle={<span className="mono">{device.deviceId}</span>}
+        // The machine's own name leads the subtitle, because "Ressy Collections"
+        // is three machines and this page is about one of them. The device id
+        // still follows it — it is what the logs and the CLI speak.
+        subtitle={
+          <span className="cell-stack">
+            {device.terminalCode && <span className="code-chip">{device.terminalCode}</span>}
+            {device.machineName && <span className="strong">{device.machineName}</span>}
+            <span className="mono">{device.deviceId}</span>
+          </span>
+        }
         actions={
           <>
             <CopyButton value={device.deviceId} label="Copy device ID" size="md" />
@@ -262,12 +271,63 @@ export function Device({
                 </article>
               ))}
             </Card>
+
+            <Notes api={api} deviceId={deviceId} reloadKey={reloadKey} />
           </>
         }
         side={
           <>
             <Card title="Actions">
               <DeviceActions api={api} device={device} canAct={api.operator.role !== 'viewer'} />
+            </Card>
+
+            <MuteCard api={api} device={device} onChanged={() => void load()} />
+
+            <TagCard api={api} device={device} onChanged={() => void load()} />
+
+            {/* Two facts about this machine that nothing else on the page can
+                stand in for: how long before its disk stops it selling, and
+                whether the shop's own history exists anywhere but here. */}
+            <Card title="Storage">
+              <dl className="kv-list">
+                <KV
+                  k="Disk free"
+                  v={
+                    device.diskFreeBytes == null ? (
+                      <span className="muted">Not reported</span>
+                    ) : device.reasons.some((r) => r.code === 'disk_low') ? (
+                      <Chip tone="bad">{bytes(device.diskFreeBytes)}</Chip>
+                    ) : (
+                      bytes(device.diskFreeBytes)
+                    )
+                  }
+                />
+                <KV
+                  k="Disk size"
+                  v={device.diskTotalBytes != null ? bytes(device.diskTotalBytes) : '—'}
+                />
+                <KV k="Database" v={device.dbSizeBytes != null ? bytes(device.dbSizeBytes) : '—'} />
+                <KV
+                  k="Last backup"
+                  v={
+                    device.backupError ? (
+                      <Chip tone="bad">Failing</Chip>
+                    ) : device.lastBackupAt ? (
+                      <span title={exact(device.lastBackupAt)}>{timeAgo(device.lastBackupAt)}</span>
+                    ) : (
+                      <span className="muted">Never reported</span>
+                    )
+                  }
+                />
+                {device.backupSizeBytes != null && (
+                  <KV k="Backup size" v={bytes(device.backupSizeBytes)} />
+                )}
+              </dl>
+              {device.backupError && (
+                <p className="bad-text small" style={{ marginTop: 8 }}>
+                  {device.backupError}
+                </p>
+              )}
             </Card>
 
             <Card title="Sync">
@@ -329,7 +389,6 @@ export function Device({
                 )}
                 <KV k="Platform" v={`${device.platform ?? '—'} ${device.osVersion ?? ''}`.trim()} />
                 <KV k="Mode" v={device.mode ?? '—'} />
-                <KV k="Database" v={device.dbSizeBytes != null ? bytes(device.dbSizeBytes) : '—'} />
                 <KV
                   k="Sales today"
                   v={
@@ -344,6 +403,332 @@ export function Device({
         }
       />
     </>
+  )
+}
+
+/* ------------------------------------------------------------------- notes */
+
+/**
+ * The support diary for this terminal.
+ *
+ * Deliberately plain: a box, a button, and a list. Everything else on this page
+ * is a measurement, and the one thing measurements cannot hold is the sentence
+ * that decides what to do — "owner away until Tuesday", "third visit for this
+ * router". Pinning lifts a standing fact above the running commentary; there is
+ * no edit, because a diary quietly rewritten afterwards reads exactly as
+ * trustworthy as one that was not.
+ */
+function Notes({
+  api,
+  deviceId,
+  reloadKey,
+}: {
+  api: Api
+  deviceId: string
+  reloadKey: number
+}) {
+  const [notes, setNotes] = useState<NoteRow[] | null>(null)
+  const [draft, setDraft] = useState('')
+  const [pinned, setPinned] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const canAct = api.operator.role !== 'viewer'
+
+  const load = useCallback(() => {
+    void api
+      .notes(deviceId)
+      .then(setNotes)
+      .catch(() => setNotes([]))
+  }, [api, deviceId])
+
+  useEffect(load, [load, reloadKey])
+
+  async function add() {
+    if (!draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.addNote(deviceId, draft.trim(), pinned)
+      setDraft('')
+      setPinned(false)
+      load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save that note')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card title={notes?.length ? `Notes (${notes.length})` : 'Notes'}>
+      {error && <Notice>{error}</Notice>}
+
+      {canAct && (
+        <div style={{ marginBottom: 12 }}>
+          <textarea
+            className="input"
+            rows={2}
+            value={draft}
+            placeholder="What does the next person need to know about this terminal?"
+            aria-label="New note"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter sends; Shift+Enter is a new line. A diary entry is
+              // usually one sentence typed while on the phone.
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void add()
+              }
+            }}
+          />
+          <div className="toolbar" style={{ gap: 8, marginTop: 8 }}>
+            <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={pinned}
+                onChange={(e) => setPinned(e.target.checked)}
+              />
+              Standing fact — keep it at the top and on the list row
+            </label>
+            <Button size="sm" busy={busy} disabled={!draft.trim()} onClick={() => void add()}>
+              Add note
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {notes == null ? (
+        <div className="skeleton" style={{ width: '55%' }} />
+      ) : notes.length === 0 ? (
+        <p className="muted small">
+          Nothing written down yet. Anything here shows on the terminals list, so the next person
+          starts where you left off rather than from the beginning.
+        </p>
+      ) : (
+        notes.map((n) => (
+          <div key={n.id} className="note-item">
+            {n.pinned && <Chip tone="idle">Pinned</Chip>}
+            <div className="note-body">{n.body}</div>
+            <div className="note-meta">
+              <span>{n.authorLabel ?? 'unknown'}</span>
+              <span title={exact(n.createdAt)}>{timeAgo(n.createdAt)}</span>
+              {canAct && (
+                <>
+                  <button
+                    type="button"
+                    className="row-open"
+                    onClick={() => void api.pinNote(n.id, !n.pinned).then(load)}
+                  >
+                    {n.pinned ? 'Unpin' : 'Pin'}
+                  </button>
+                  <button
+                    type="button"
+                    className="row-open"
+                    onClick={() => void api.deleteNote(n.id).then(load)}
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------- mutes */
+
+/** Preset windows. Anything longer is a decision, not a click. */
+const MUTE_PRESETS = [
+  { label: '1 hour', minutes: 60 },
+  { label: '4 hours', minutes: 240 },
+  { label: 'Today', minutes: 12 * 60 },
+  { label: '3 days', minutes: 3 * 24 * 60 },
+  { label: '2 weeks', minutes: 14 * 24 * 60 },
+]
+
+/**
+ * Silence this terminal for a while — and say why.
+ *
+ * The reason is required, and the card says out loud what a mute does NOT do:
+ * the terminal keeps reporting, keeps failing its uptime, keeps counting. If
+ * silencing something also made it look well, the quickest route to a green
+ * console would be to stop listening.
+ */
+function MuteCard({
+  api,
+  device,
+  onChanged,
+}: {
+  api: Api
+  device: DeviceRow
+  onChanged: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const [minutes, setMinutes] = useState(MUTE_PRESETS[1]!.minutes)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const canAct = api.operator.role !== 'viewer'
+
+  if (device.mute) {
+    const scopedElsewhere = device.mute.scope !== 'device'
+    return (
+      <Card title="Silenced">
+        <p className="small">{device.mute.reason}</p>
+        <dl className="kv-list">
+          <KV k="Until" v={<span title={exact(device.mute.endsAt)}>{timeUntil(device.mute.endsAt)}</span>} />
+          <KV k="Set by" v={device.mute.createdByLabel ?? '—'} />
+          {scopedElsewhere && <KV k="Scope" v={`Whole ${device.mute.scope}`} />}
+        </dl>
+        <p className="hint" style={{ marginTop: 8 }}>
+          Alerts for this terminal are being held, not dropped: anything still wrong when the window
+          closes pages then.
+        </p>
+        {canAct && (
+          <Button
+            size="sm"
+            variant="ghost"
+            busy={busy}
+            onClick={() => {
+              setBusy(true)
+              void api
+                .cancelMute(device.mute!.id)
+                .then(onChanged)
+                .catch((err: unknown) =>
+                  setError(err instanceof Error ? err.message : 'Could not lift it'),
+                )
+                .finally(() => setBusy(false))
+            }}
+          >
+            Lift now
+          </Button>
+        )}
+        {error && <Notice>{error}</Notice>}
+      </Card>
+    )
+  }
+
+  if (!canAct) return null
+
+  return (
+    <Card title="Silence alerts">
+      {error && <Notice>{error}</Notice>}
+      <input
+        className="input"
+        value={reason}
+        placeholder="Why — shop closed, machine being replaced…"
+        aria-label="Reason for silencing"
+        onChange={(e) => setReason(e.target.value)}
+      />
+      <div className="toolbar" style={{ gap: 8, marginTop: 8 }}>
+        <select
+          className="input"
+          value={minutes}
+          aria-label="How long"
+          onChange={(e) => setMinutes(Number(e.target.value))}
+        >
+          {MUTE_PRESETS.map((p) => (
+            <option key={p.minutes} value={p.minutes}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <Button
+          size="sm"
+          busy={busy}
+          disabled={!reason.trim()}
+          onClick={() => {
+            setBusy(true)
+            setError(null)
+            void api
+              .openMute({ scope: 'device', deviceId: device.deviceId, reason: reason.trim(), minutes })
+              .then(() => {
+                setReason('')
+                onChanged()
+              })
+              .catch((err: unknown) =>
+                setError(err instanceof Error ? err.message : 'Could not silence it'),
+              )
+              .finally(() => setBusy(false))
+          }}
+        >
+          Silence
+        </Button>
+      </div>
+      <p className="hint" style={{ marginTop: 8 }}>
+        Stops the paging, changes nothing else: this terminal still shows its real state here and
+        still counts against availability.
+      </p>
+    </Card>
+  )
+}
+
+/* -------------------------------------------------------------------- tags */
+
+function TagCard({
+  api,
+  device,
+  onChanged,
+}: {
+  api: Api
+  device: DeviceRow
+  onChanged: () => void
+}) {
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const canAct = api.operator.role !== 'viewer'
+  if (!canAct && device.tags.length === 0) return null
+
+  return (
+    <Card title="Tags">
+      {error && <Notice>{error}</Notice>}
+      <div className="cell-stack">
+        {device.tags.length === 0 && <span className="muted small">No tags</span>}
+        {device.tags.map((t) => (
+          <span key={t} className="tag-chip">
+            {t}
+            {canAct && (
+              <button
+                type="button"
+                aria-label={`Remove ${t}`}
+                onClick={() => void api.removeTag(device.deviceId, t).then(onChanged)}
+              >
+                <Icon name="close" size={10} />
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      {canAct && (
+        <div className="toolbar" style={{ gap: 8, marginTop: 10 }}>
+          <input
+            className="input"
+            value={draft}
+            placeholder="canary, ring-1, flaky-router…"
+            aria-label="New tag"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || !draft.trim()) return
+              void api
+                .addTag(device.deviceId, draft.trim())
+                .then(() => {
+                  setDraft('')
+                  onChanged()
+                })
+                .catch((err: unknown) =>
+                  setError(err instanceof Error ? err.message : 'Could not add that tag'),
+                )
+            }}
+          />
+        </div>
+      )}
+      {/* The one tag that does something rather than only describing something. */}
+      <p className="hint" style={{ marginTop: 8 }}>
+        A terminal tagged <b>canary</b> goes in the first wave of every rollout.
+      </p>
+    </Card>
   )
 }
 
@@ -367,14 +752,3 @@ function Trend({
   )
 }
 
-function bytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let v = n / 1024
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i += 1
-  }
-  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
-}

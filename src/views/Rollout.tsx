@@ -25,6 +25,18 @@ import { Button, Notice } from '../components/ui.tsx'
 /** Same shape the terminal and the server both insist on. */
 const VERSION = /^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$/
 
+/** What the target set was, in words, for the rollout's own record of itself. */
+function describe(query: DeviceQuery, total: number): string {
+  const parts: string[] = []
+  if (query.state && query.state !== 'all') parts.push(query.state)
+  if (query.shopId) parts.push('one shop')
+  if (query.platform) parts.push(query.platform)
+  if (query.appVersion) parts.push(`on ${query.appVersion}`)
+  if (query.tag) parts.push(`tagged ${query.tag}`)
+  if (query.q) parts.push(`matching "${query.q}"`)
+  return parts.length ? `${total} terminals — ${parts.join(', ')}` : `all ${total} terminals`
+}
+
 /** Terminals fetched per page when expanding the filter into a device list. */
 const PAGE = 200
 /** Commands issued at once — enough to be quick, not enough to be a stampede. */
@@ -44,6 +56,7 @@ export function Rollout({
   canAct,
   release,
   onIssued,
+  onOpenRollouts,
 }: {
   api: Api
   /** The Terminals view's current filter — the selection. */
@@ -58,6 +71,8 @@ export function Rollout({
    */
   release: Overview['release'] | null
   onIssued: () => void
+  /** Where to send someone once the rollout has a life of its own to watch. */
+  onOpenRollouts?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [version, setVersion] = useState('')
@@ -66,6 +81,12 @@ export function Rollout({
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
+  // Defaults chosen to be defensible without thought: a tenth of the fleet, two
+  // bad terminals is a pattern, half an hour is long enough for a shop to have
+  // served somebody on the new build.
+  const [canaryPercent, setCanaryPercent] = useState(10)
+  const [haltErrorDevices, setHaltErrorDevices] = useState(2)
+  const [observeMinutes, setObserveMinutes] = useState(30)
 
   if (!canAct) return null
 
@@ -78,6 +99,55 @@ export function Rollout({
       if (out.length >= page.total || page.devices.length === 0) break
     }
     return out
+  }
+
+  /**
+   * Start a STAGED rollout: a canary first, watched, then the rest.
+   *
+   * The old path issued one command per terminal from the browser, which meant
+   * the whole fleet took the build in one go and the only supervision was
+   * whoever happened to be looking. The server now owns the wave logic, so the
+   * page's job is to say what the target set is and hand it over.
+   */
+  async function stage() {
+    setError(null)
+    setOutcome(null)
+    if (!VERSION.test(version.trim())) {
+      setError('Enter a version number like 1.5.2.')
+      return
+    }
+    setBusy('update')
+    setProgress(0)
+    try {
+      const devices = await allMatching()
+      const eligible = devices.filter((d) => d.keyVerified)
+      if (eligible.length === 0) {
+        setError(
+          'None of these terminals can take an update — they are still on the shared enrollment key.',
+        )
+        return
+      }
+      const rollout = await api.createRollout({
+        version: version.trim(),
+        deviceIds: eligible.map((d) => d.deviceId),
+        targetLabel: describe(query, total),
+        canaryPercent,
+        haltErrorDevices,
+        observeMinutes,
+      })
+      setOutcome({
+        queued: rollout.progress.canaryTotal,
+        alreadyQueued: 0,
+        skipped: devices.length - eligible.length,
+        failed: [],
+      })
+      onIssued()
+      onOpenRollouts?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start the rollout')
+    } finally {
+      setBusy(null)
+    }
   }
 
   async function run(command: 'app.bundle' | 'app.revert') {
@@ -157,9 +227,10 @@ export function Rollout({
 
       <p className="hint" style={{ marginBottom: 12 }}>
         Sends a signed update to the <b>{total}</b>{' '}
-        {total === 1 ? 'terminal' : 'terminals'} matching the current filter. Each one downloads
-        it, checks the signature, and loads it the next time it starts — no till is interrupted
-        while it is trading.
+        {total === 1 ? 'terminal' : 'terminals'} matching the current filter — but not all at once.
+        The first {canaryPercent}% take it, spread across shops; if any of them report new faults or
+        stop checking in, the rollout halts itself and the rest are never sent it. No till is
+        interrupted while it is trading.
       </p>
 
       {error && <Notice>{error}</Notice>}
@@ -182,12 +253,64 @@ export function Rollout({
             <option key={v} value={v} />
           ))}
         </datalist>
-        <Button size="sm" busy={busy === 'update'} onClick={() => void run('app.bundle')}>
-          Roll out
+        <Button size="sm" busy={busy === 'update'} onClick={() => void stage()}>
+          Start rollout
         </Button>
         <Button size="sm" variant="ghost" disabled={busy != null} onClick={() => setOpen(false)}>
           Close
         </Button>
+      </div>
+
+      {/* The safety policy, editable but pre-decided. Left alone it is a
+          sensible rollout; the fields exist because "everything at once" is
+          occasionally the right call and hiding it would invite the old
+          workaround of clicking the per-terminal button forty times. */}
+      <div className="toolbar" style={{ gap: 12, marginTop: 10 }}>
+        <label className="muted small">
+          First wave
+          <select
+            className="input"
+            value={canaryPercent}
+            aria-label="Canary size"
+            onChange={(e) => setCanaryPercent(Number(e.target.value))}
+          >
+            {[5, 10, 25, 50, 100].map((p) => (
+              <option key={p} value={p}>
+                {p}%
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="muted small">
+          Halt after
+          <select
+            className="input"
+            value={haltErrorDevices}
+            aria-label="Bad terminals before halting"
+            onChange={(e) => setHaltErrorDevices(Number(e.target.value))}
+          >
+            {[1, 2, 3, 5].map((n) => (
+              <option key={n} value={n}>
+                {n} bad terminal{n === 1 ? '' : 's'}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="muted small">
+          Watch for
+          <select
+            className="input"
+            value={observeMinutes}
+            aria-label="Observation window"
+            onChange={(e) => setObserveMinutes(Number(e.target.value))}
+          >
+            {[15, 30, 60, 180, 720].map((m) => (
+              <option key={m} value={m}>
+                {m < 60 ? `${m} min` : `${m / 60}h`}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {/* Warn, don't block: the feed is read from one box and an operator may
@@ -209,8 +332,9 @@ export function Rollout({
       {outcome && (
         <div style={{ marginTop: 12 }}>
           <p className="hint">
-            Queued for <b>{outcome.queued}</b>{' '}
-            {outcome.queued === 1 ? 'terminal' : 'terminals'}.
+            First wave queued for <b>{outcome.queued}</b>{' '}
+            {outcome.queued === 1 ? 'terminal' : 'terminals'}. The rest follow automatically once
+            those have run clean for {observeMinutes} minutes — watch it on the Rollouts page.
             {outcome.alreadyQueued > 0 && ` ${outcome.alreadyQueued} already had one waiting.`}
             {outcome.skipped > 0 &&
               ` ${outcome.skipped} skipped — still reporting on the shared enrollment key rather` +
@@ -231,8 +355,7 @@ export function Rollout({
             </>
           )}
           <p className="hint" style={{ marginTop: 8 }}>
-            Each terminal picks it up on its next heartbeat, within about three minutes. Watch
-            the Version column to see it land.
+            Each terminal picks it up on its next heartbeat, within about three minutes.
           </p>
         </div>
       )}

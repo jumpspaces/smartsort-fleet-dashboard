@@ -208,7 +208,9 @@ export function Card({
   actions,
   children,
 }: {
-  title: string
+  /** Usually a string; a node when the title carries state of its own (a
+      rollout's version and where it has got to are one heading, not two). */
+  title: ReactNode
   actions?: ReactNode
   children: ReactNode
 }) {

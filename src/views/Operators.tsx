@@ -3,6 +3,8 @@ import { Forbidden, Unauthorized, type Api, type CreateOperatorInput, type Opera
 import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
 import { exact, timeAgo } from '../lib/format.ts'
 import { AlertThresholds } from './AlertThresholds.tsx'
+import { MaintenanceWindows } from './MaintenanceWindows.tsx'
+import { NotifyRouting } from './NotifyRouting.tsx'
 
 const ROLES: CreateOperatorInput['role'][] = ['viewer', 'operator', 'admin']
 
@@ -141,6 +143,11 @@ export function Operators({ api, onUnauthorized }: { api: Api; onUnauthorized: (
       </section>
 
       <AlertThresholds api={api} />
+      {/* Detection is above; this is delivery. Two different questions —
+          "what counts as wrong" and "who hears about it" — and keeping them as
+          separate panels is what stops a routing tweak retuning the rules. */}
+      <NotifyRouting api={api} />
+      <MaintenanceWindows api={api} />
     </>
   )
 }

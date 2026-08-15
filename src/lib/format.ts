@@ -71,6 +71,21 @@ export function ageMs(iso: string | null | undefined): number {
   return Number.isNaN(t) ? Number.POSITIVE_INFINITY : Date.now() - t
 }
 
+/** Bytes at the granularity a person reads: "1.4 GB", "380 MB". */
+export function bytes(n: number | null | undefined): string {
+  if (n == null) return '—'
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`
+  if (n >= 1024 ** 2) return `${Math.round(n / 1024 ** 2)} MB`
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`
+  return `${n} B`
+}
+
+/** Basis points → percent, as availability is written: 9987 → "99.87%". */
+export function bps(n: number | null | undefined, digits = 2): string {
+  if (n == null) return '—'
+  return `${(n / 100).toFixed(digits)}%`
+}
+
 /** Host portion of the API base, for the sidebar's connection line. */
 export function hostOf(base: string): string {
   try {

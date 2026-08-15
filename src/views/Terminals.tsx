@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Api, DeviceRow, FleetState, Overview } from '../api.ts'
+import type { Api, DeviceRow, FleetState, HeartbeatStrip, Overview, TagCount } from '../api.ts'
 import type { Navigate } from '../App.tsx'
 import type { Route } from '../lib/route.ts'
+import { Heartbeat } from '../components/Heartbeat.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { PlainHeader, SortHeader, type Sort } from '../components/SortHeader.tsx'
 import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
 import { downloadCsv, toCsv } from '../lib/csv.ts'
-import { cedis, duration, exact, timeAgo } from '../lib/format.ts'
+import { bytes, cedis, duration, exact, timeAgo, timeUntil } from '../lib/format.ts'
 import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 import { useDebounced } from '../lib/useDebounced.ts'
 import { useHotkey } from '../lib/useHotkey.ts'
 import { Rollout } from './Rollout.tsx'
 
-type SortKey = 'state' | 'shop' | 'version' | 'sync' | 'sales' | 'errors' | 'lastSeen'
+type SortKey = 'state' | 'shop' | 'version' | 'sync' | 'sales' | 'errors' | 'lastSeen' | 'disk'
 type Filter = 'all' | FleetState
 
 const PAGE_SIZE = 50
@@ -39,6 +40,8 @@ export function Terminals({
   const shopId = route.params.shopId
   const platform = route.params.platform
   const appVersion = route.params.version
+  const tag = route.params.tag
+  const muted = route.params.muted as 'muted' | 'unmuted' | undefined
   const offset = Number(route.params.offset ?? 0) || 0
   const sort: Sort<SortKey> = {
     key: (route.params.sort as SortKey | undefined) ?? 'state',
@@ -52,6 +55,8 @@ export function Terminals({
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [strips, setStrips] = useState<Record<string, HeartbeatStrip>>({})
+  const [tags, setTags] = useState<TagCount[]>([])
 
   const searchRef = useRef<HTMLInputElement>(null)
   useHotkey('/', () => searchRef.current?.focus())
@@ -80,6 +85,8 @@ export function Terminals({
         shopId,
         platform,
         appVersion,
+        tag,
+        muted,
         sort: sort.key,
         dir: sort.dir,
         limit: PAGE_SIZE,
@@ -88,18 +95,38 @@ export function Terminals({
       setRows(page.devices)
       setTotal(page.total)
       setError(null)
+
+      // The strips come second and separately: they are a texture on a row that
+      // is already useful, so the table must never wait on them.
+      try {
+        const fetched = await api.heartbeats(page.devices.map((d) => d.deviceId))
+        setStrips(Object.fromEntries(fetched.map((s) => [s.deviceId, s])))
+      } catch {
+        setStrips({})
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reach the fleet server')
     }
-  }, [api, debouncedQuery, filter, shopId, platform, appVersion, sort.key, sort.dir, offset])
+  }, [api, debouncedQuery, filter, shopId, platform, appVersion, tag, muted, sort.key, sort.dir, offset])
 
   useEffect(() => {
     void load()
   }, [load, reloadKey])
 
+  // The tag vocabulary changes when somebody tags a terminal, not on a poll.
+  useEffect(() => {
+    void api.tagCatalogue().then(setTags).catch(() => setTags([]))
+  }, [api, reloadKey])
+
   const counts = overview?.counts
   const filtering =
-    filter !== 'all' || query.trim() !== '' || shopId != null || platform != null || appVersion != null
+    filter !== 'all' ||
+    query.trim() !== '' ||
+    shopId != null ||
+    platform != null ||
+    appVersion != null ||
+    tag != null ||
+    muted != null
   const shopLabel = shopId ? (rows?.[0]?.shopName ?? 'this shop') : null
 
   const clearAll = () => {
@@ -110,9 +137,13 @@ export function Terminals({
       shopId: undefined,
       platform: undefined,
       version: undefined,
+      tag: undefined,
+      muted: undefined,
       offset: undefined,
     })
   }
+
+  const setTag = (next: string | undefined) => onReplace({ tag: next, offset: undefined })
 
   // Click a build or platform in the table to narrow to it — the cheapest way to
   // ask "who else is on this" without a separate distinct-values endpoint.
@@ -142,6 +173,8 @@ export function Terminals({
         `terminals-${new Date().toISOString().slice(0, 10)}.csv`,
         toCsv(all, [
           { header: 'Shop', value: (d) => d.shopName ?? 'Unclaimed' },
+          { header: 'Terminal', value: (d) => d.terminalCode ?? '' },
+          { header: 'Machine', value: (d) => d.machineName ?? '' },
           { header: 'Device ID', value: (d) => d.deviceId },
           { header: 'State', value: (d) => d.state },
           { header: 'Version', value: (d) => d.appVersion },
@@ -155,6 +188,11 @@ export function Terminals({
           { header: 'Sales today (GHS)', value: (d) => ((d.salesTodayPesewas ?? 0) / 100).toFixed(2) },
           { header: 'Sales count today', value: (d) => d.salesTodayCount },
           { header: 'Open errors', value: (d) => d.recentOpenErrorGroups },
+          { header: 'Disk free', value: (d) => d.diskFreeBytes ?? '' },
+          { header: 'Disk total', value: (d) => d.diskTotalBytes ?? '' },
+          { header: 'Last backup', value: (d) => d.lastBackupAt ?? '' },
+          { header: 'Tags', value: (d) => d.tags.join(' ') },
+          { header: 'Silenced until', value: (d) => d.mute?.endsAt ?? '' },
           { header: 'Last seen', value: (d) => d.lastReportAt },
         ]),
       )
@@ -189,7 +227,7 @@ export function Terminals({
               className="input"
               type="search"
               value={query}
-              placeholder="Search shop, device, version…"
+              placeholder="Search shop, machine, device, version…"
               aria-label="Search terminals"
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -224,9 +262,31 @@ export function Terminals({
             </Button>
           </div>
 
+          {/* The rings an operator has defined. Shown only once something is
+              tagged — an empty vocabulary is a row of chrome explaining a
+              feature nobody has used yet. */}
+          {tags.length > 0 && (
+            <div className="filters" role="group" aria-label="Filter by tag">
+              {tags.slice(0, 8).map((t) => (
+                <button
+                  key={t.tag}
+                  type="button"
+                  className="key"
+                  aria-pressed={tag === t.tag}
+                  onClick={() => setTag(tag === t.tag ? undefined : t.tag)}
+                >
+                  <b>{t.devices}</b>
+                  {t.tag}
+                </button>
+              ))}
+            </div>
+          )}
+
           {filtering && (
             <div className="toolbar-end">
               {shopId && <Chip tone="idle">Shop: {shopLabel}</Chip>}
+              {tag && <Chip tone="idle">Tag: {tag}</Chip>}
+              {muted && <Chip tone="idle">{muted === 'muted' ? 'Silenced' : 'Not silenced'}</Chip>}
               {platform && (
                 <Chip tone="idle">
                   Platform: {platform}
@@ -251,11 +311,19 @@ export function Terminals({
             is why it lives here rather than in a menu of its own. */}
         <Rollout
           api={api}
-          query={{ q: debouncedQuery.trim() || undefined, state: filter, shopId, platform, appVersion }}
+          query={{
+            q: debouncedQuery.trim() || undefined,
+            state: filter,
+            shopId,
+            platform,
+            appVersion,
+            tag,
+          }}
           total={total}
           canAct={api.operator.role !== 'viewer'}
           release={overview?.release ?? null}
           onIssued={() => void load()}
+          onOpenRollouts={() => onNavigate('rollouts')}
         />
 
         {rows == null ? (
@@ -289,8 +357,10 @@ export function Terminals({
                     <SortHeader label="Version" sortKey="version" sort={sort} onSort={setSort} />
                     <PlainHeader label="Platform" />
                     <SortHeader label="Sync" sortKey="sync" sort={sort} onSort={setSort} />
+                    <SortHeader label="Disk" sortKey="disk" sort={sort} onSort={setSort} numeric />
                     <SortHeader label="Sales today" sortKey="sales" sort={sort} onSort={setSort} numeric />
                     <SortHeader label="Errors" sortKey="errors" sort={sort} onSort={setSort} numeric />
+                    <PlainHeader label="Last 24h" />
                     <SortHeader label="Last seen" sortKey="lastSeen" sort={sort} onSort={setSort} numeric />
                     <PlainHeader label="Open detail" srOnly />
                   </tr>
@@ -302,9 +372,23 @@ export function Terminals({
                         <Status tone={TONE[d.state]} label={STATE_LABEL[d.state]} />
                         {/* The server says WHY, worst reason first. Showing it in
                             the row is what turns "Attention" from a colour into
-                            something someone can act on without opening it. */}
+                            something someone can act on without acting on it. */}
                         {d.state !== 'healthy' && primaryReason(d.reasons) && (
                           <div className="row-sub">{primaryReason(d.reasons)}</div>
+                        )}
+                        {/* A muted terminal reads exactly as broken as it is —
+                            the badge says only that nobody is being paged. */}
+                        {d.mute && (
+                          <div className="row-sub">
+                            <span
+                              className="muted-badge"
+                              title={`${d.mute.reason} — until ${exact(d.mute.endsAt)}`}
+                            >
+                              <Icon name="mute" size={11} />
+                              Silenced {d.mute.scope === 'device' ? '' : `(${d.mute.scope}) `}·{' '}
+                              {timeUntil(d.mute.endsAt)}
+                            </span>
+                          </div>
                         )}
                       </td>
                       <td>
@@ -318,14 +402,54 @@ export function Terminals({
                         >
                           {d.shopName ?? 'Unclaimed terminal'}
                         </button>
-                        <div className="row-sub mono">
-                          {d.deviceId.slice(0, 12)}
+                        {/* Which MACHINE, not just which shop. Every till in a
+                            shop carries the same shop name, so on the shops that
+                            run three of them this line is the only thing in the
+                            row that says which one to go and look at. The device
+                            id stays one hover (or one click) away. */}
+                        <div className="row-sub cell-stack" title={d.deviceId}>
+                          {d.terminalCode && <span className="code-chip">{d.terminalCode}</span>}
+                          <span className={d.machineName || d.terminalCode ? undefined : 'mono'}>
+                            {d.machineName ?? (d.terminalCode ? 'Unnamed machine' : d.deviceId.slice(0, 12))}
+                          </span>
                           {!d.keyVerified && (
                             <span className="tag-warn" title="Reporting on the shared enrollment key">
                               unverified
                             </span>
                           )}
+                          {d.tags.map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              className="tag-chip"
+                              title={`Show only ${t}`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setTag(t)
+                              }}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                          {d.noteCount > 0 && (
+                            <span
+                              className="muted"
+                              title={d.pinnedNote ?? `${d.noteCount} note(s) on this terminal`}
+                            >
+                              <Icon name="note" size={11} /> {d.noteCount}
+                            </span>
+                          )}
                         </div>
+                        {/* The standing note, where somebody put a fact that
+                            outranks anything on this row: "owner away until
+                            Tuesday" changes what you do about an offline till. */}
+                        {d.pinnedNote && (
+                          <div className="row-sub" title={d.pinnedNote}>
+                            {d.pinnedNote.length > 80
+                              ? `${d.pinnedNote.slice(0, 80)}…`
+                              : d.pinnedNote}
+                          </div>
+                        )}
                       </td>
                       {/* The patched version when a terminal is carrying one,
                           because during a rollout that is the number being
@@ -370,12 +494,20 @@ export function Terminals({
                         )}
                       </td>
                       <td>{syncCell(d)}</td>
+                      <td className="col-num">{diskCell(d)}</td>
                       <td className="col-num">{salesCell(d)}</td>
                       <td className="col-num">
                         {d.recentOpenErrorGroups > 0 ? (
                           <Chip tone="warn">{d.recentOpenErrorGroups}</Chip>
                         ) : (
                           <span className="muted">0</span>
+                        )}
+                      </td>
+                      <td>
+                        {strips[d.deviceId] ? (
+                          <Heartbeat {...strips[d.deviceId]!} />
+                        ) : (
+                          <span className="muted small">—</span>
                         )}
                       </td>
                       <td className="col-num muted" title={exact(d.lastReportAt)}>
@@ -615,6 +747,25 @@ function syncCell(d: DeviceRow) {
 
   if (pending > 0) return <span className="muted">{pending} in flight</span>
   return <span className="muted">Clear</span>
+}
+
+/**
+ * Free space, and only when it is worth a glance. A till at 40GB free needs no
+ * column inches; one at 900MB has a date by which it stops selling.
+ */
+function diskCell(d: DeviceRow) {
+  if (d.diskFreeBytes == null) return <span className="muted">—</span>
+  const low = d.reasons.some((r) => r.code === 'disk_low')
+  const pct =
+    d.diskTotalBytes && d.diskTotalBytes > 0
+      ? Math.round((d.diskFreeBytes / d.diskTotalBytes) * 100)
+      : null
+  return (
+    <>
+      {low ? <Chip tone="bad">{bytes(d.diskFreeBytes)}</Chip> : <span className="muted">{bytes(d.diskFreeBytes)}</span>}
+      {pct != null && <div className="row-sub">{pct}% free</div>}
+    </>
+  )
 }
 
 function salesCell(d: DeviceRow) {

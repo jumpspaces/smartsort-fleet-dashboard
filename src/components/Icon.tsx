@@ -28,6 +28,13 @@ export type IconName =
   | 'prompt'
   | 'download'
   | 'upload'
+  | 'mute'
+  | 'note'
+  | 'tag'
+  | 'rocket'
+  | 'trend'
+  | 'shield'
+  | 'disk'
 
 /** A stroked outline, optionally with a solid half — used for the auto-theme
     glyph, where a stroke-only half circle just reads as the letter D. */
@@ -60,6 +67,15 @@ const PATHS: Record<IconName, Glyph> = {
   prompt: 'M2.75 2.75h10.5v10.5H2.75zM5 6.25 7.25 8 5 9.75M8.75 9.75h2.25',
   download: 'M8 2.75v7M5 6.75 8 9.75l3-3M3.25 12.75h9.5',
   upload: 'M8 9.75v-7M5 5.75 8 2.75l3 3M3.25 12.75h9.5',
+  // A bell with a stroke through it: silenced, not removed — which is exactly
+  // what a maintenance window does.
+  mute: 'M8 2.75a3.75 3.75 0 0 1 3.75 3.75c0 3 1 3.75 1 3.75h-9.5s1-.75 1-3.75A3.75 3.75 0 0 1 8 2.75ZM2.75 2.75l10.5 10.5',
+  note: 'M3.75 2.75h8.5v10.5h-8.5zM6 5.75h4M6 8.25h4M6 10.75h2.5',
+  tag: 'M2.75 2.75h4.5l6 6-4.5 4.5-6-6zM5 5h.01',
+  rocket: 'M6.5 9.5 3.75 8.75l1.5-2.5a7 7 0 0 1 6-3.5 7 7 0 0 1-3.5 6l-2.5 1.5zM6.5 9.5l.75 2.75M4.5 11.5l-1.75 1.75',
+  trend: 'M2.75 11.25 6 7.75l2.5 2.25 4.75-5.25M13.25 4.75h-3M13.25 4.75v3',
+  shield: 'M8 2.25 13.25 4v4c0 3-2.25 4.75-5.25 5.75C5 12.75 2.75 11 2.75 8V4z',
+  disk: 'M2.75 4.5c0-1 2.35-1.75 5.25-1.75S13.25 3.5 13.25 4.5v7c0 1-2.35 1.75-5.25 1.75S2.75 12.5 2.75 11.5zM2.75 8c0 1 2.35 1.75 5.25 1.75S13.25 9 13.25 8',
 }
 
 export function Icon({

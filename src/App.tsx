@@ -11,9 +11,13 @@ import { Button } from './components/ui.tsx'
 import { duration, hostOf } from './lib/format.ts'
 import { PARENT, useRoute, type View } from './lib/route.ts'
 import { useTheme, type ThemePref } from './lib/theme.ts'
+import { Palette } from './components/Palette.tsx'
 import { Alerts } from './views/Alerts.tsx'
 import { Audit } from './views/Audit.tsx'
+import { Backups } from './views/Backups.tsx'
 import { Commands } from './views/Commands.tsx'
+import { Rollouts } from './views/Rollouts.tsx'
+import { Trends } from './views/Trends.tsx'
 import { Device } from './views/Device.tsx'
 import { ErrorGroup } from './views/ErrorGroup.tsx'
 import { Errors } from './views/Errors.tsx'
@@ -127,6 +131,20 @@ function Dashboard({
 
   usePolling(refresh, REFRESH_MS)
 
+  // ⌘K / Ctrl-K anywhere. Registered on the shell rather than inside the
+  // palette so it works from any view, including one with a focused input.
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <div className="shell">
       <Sidebar
@@ -184,6 +202,12 @@ function Dashboard({
             <Alerts api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
           ) : view === 'commands' ? (
             <Commands api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
+          ) : view === 'rollouts' ? (
+            <Rollouts api={api} reloadKey={reloadKey} onNavigate={navigate} />
+          ) : view === 'trends' ? (
+            <Trends api={api} reloadKey={reloadKey} onNavigate={navigate} />
+          ) : view === 'backups' ? (
+            <Backups api={api} reloadKey={reloadKey} onNavigate={navigate} />
           ) : view === 'operators' ? (
             <Operators api={api} onUnauthorized={onSignOut} />
           ) : view === 'audit' ? (
@@ -200,6 +224,10 @@ function Dashboard({
           )}
         </div>
       </main>
+
+      {paletteOpen && (
+        <Palette api={api} onNavigate={navigate} onClose={() => setPaletteOpen(false)} />
+      )}
     </div>
   )
 }
@@ -256,6 +284,9 @@ function Sidebar({
       urgent: (overview?.openErrorGroups ?? 0) > 0,
     },
     { id: 'shops', label: 'Shops', icon: 'shops', count: null },
+    { id: 'rollouts', label: 'Rollouts', icon: 'rocket', count: null },
+    { id: 'trends', label: 'Trends', icon: 'trend', count: null },
+    { id: 'backups', label: 'Backups', icon: 'shield', count: null },
     { id: 'commands', label: 'Commands', icon: 'prompt', count: null },
     { id: 'audit', label: 'Audit', icon: 'list', count: null },
     ...(operator.role === 'admin'

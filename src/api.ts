@@ -56,6 +56,8 @@ export interface HealthReason {
     | 'pull_stale'
     | 'pull_quarantined'
     | 'errors_recent'
+    | 'disk_low'
+    | 'backup_stale'
     | 'unverified_key'
     | 'key_rejected'
   label: string
@@ -66,6 +68,13 @@ export interface DeviceRow {
   deviceId: string
   shopId: string | null
   shopName: string | null
+  /**
+   * From the machine's store key, not the heartbeat: what the shop called this
+   * machine when it connected it, and the short code ("T3") that prefixes its
+   * receipts. Both null until the machine claims a key.
+   */
+  machineName: string | null
+  terminalCode: string | null
   appVersion: string | null
   /** Renderer hot-patch in use, or null on the build from the installer. */
   bundleVersion: string | null
@@ -88,12 +97,71 @@ export interface DeviceRow {
   keyVerified: boolean
   firstReportAt: string
   lastReportAt: string
+  /** Free/total space on the terminal's own volume, as the machine measured it. */
+  diskFreeBytes: number | null
+  diskTotalBytes: number | null
+  /** Its last local database snapshot — see the terminal's backup service. */
+  lastBackupAt: string | null
+  backupSizeBytes: number | null
+  backupError: string | null
   /** Server-computed. */
   state: FleetState
   reasons: HealthReason[]
   online: boolean
   recentOpenErrorGroups: number
   openAlerts: number
+  /** What an operator decided, as opposed to what the terminal reported. */
+  mute: DeviceMute | null
+  tags: string[]
+  noteCount: number
+  pinnedNote: string | null
+}
+
+export interface DeviceMute {
+  id: string
+  scope: 'device' | 'shop' | 'fleet'
+  reason: string
+  endsAt: string
+  createdByLabel: string | null
+}
+
+export interface MuteRow {
+  id: string
+  scope: 'device' | 'shop' | 'fleet'
+  deviceId: string | null
+  shopId: string | null
+  shopName: string | null
+  reason: string
+  startsAt: string
+  endsAt: string
+  cancelledAt: string | null
+  cancelledBy: string | null
+  createdByLabel: string | null
+  createdAt: string
+  active: boolean
+}
+
+export interface NoteRow {
+  id: string
+  deviceId: string
+  body: string
+  pinned: boolean
+  authorLabel: string | null
+  createdAt: string
+}
+
+export interface TagCount {
+  tag: string
+  devices: number
+}
+
+/** One terminal's recent liveness, bucketed oldest-first. */
+export interface HeartbeatStrip {
+  deviceId: string
+  buckets: number[]
+  expectedPerBucket: number
+  fromMs: number
+  bucketMs: number
 }
 
 export interface DevicePage {
@@ -109,10 +177,171 @@ export interface DeviceQuery {
   shopId?: string
   platform?: string
   appVersion?: string
+  tag?: string
+  muted?: 'muted' | 'unmuted'
   sort?: string
   dir?: 'asc' | 'desc'
   limit?: number
   offset?: number
+}
+
+/* ---- staged rollouts ---- */
+
+export type RolloutState = 'canary' | 'rolling' | 'complete' | 'halted' | 'cancelled'
+export type RolloutTargetState =
+  | 'pending'
+  | 'issued'
+  | 'updated'
+  | 'failed'
+  | 'skipped'
+  | 'reverted'
+
+export interface RolloutProgress {
+  total: number
+  pending: number
+  issued: number
+  updated: number
+  failed: number
+  skipped: number
+  reverted: number
+  canaryTotal: number
+  canaryUpdated: number
+}
+
+export interface RolloutRow {
+  id: string
+  version: string
+  note: string | null
+  targetLabel: string | null
+  state: RolloutState
+  canaryPercent: number
+  haltErrorDevices: number
+  observeMinutes: number
+  canaryIssuedAt: string | null
+  promotedAt: string | null
+  completedAt: string | null
+  haltedAt: string | null
+  haltReason: string | null
+  createdByLabel: string | null
+  createdAt: string
+  progress: RolloutProgress
+}
+
+export interface RolloutTarget {
+  id: string
+  deviceId: string
+  shopName: string | null
+  wave: number
+  state: RolloutTargetState
+  fromVersion: string | null
+  issuedAt: string | null
+  confirmedAt: string | null
+  note: string | null
+}
+
+export interface RolloutDetail extends RolloutRow {
+  targets: RolloutTarget[]
+}
+
+export interface CreateRolloutInput {
+  version: string
+  deviceIds: string[]
+  targetLabel?: string | null
+  note?: string | null
+  canaryPercent?: number
+  haltErrorDevices?: number
+  observeMinutes?: number
+}
+
+/* ---- notification channels ---- */
+
+export type ChannelKind = 'webhook' | 'push_owner'
+
+export interface ChannelRow {
+  id: string
+  kind: ChannelKind
+  label: string
+  target: string | null
+  minSeverity: 'warning' | 'critical'
+  respectQuietHours: boolean
+  ruleKeys: string[] | null
+  active: boolean
+  managed: boolean
+  lastSuccessAt: string | null
+  lastFailureAt: string | null
+  lastError: string | null
+}
+
+export interface ChannelInput {
+  kind: ChannelKind
+  label: string
+  target?: string | null
+  minSeverity?: 'warning' | 'critical'
+  respectQuietHours?: boolean
+  ruleKeys?: string[] | null
+  active?: boolean
+}
+
+export interface DeliveryRow {
+  id: string
+  direction: 'open' | 'resolve'
+  sentAt: string | null
+  attempts: number
+  lastError: string | null
+  heldUntil: string | null
+  channelLabel: string
+  channelKind: ChannelKind
+}
+
+/* ---- trends & SLO ---- */
+
+export interface TrendDay {
+  day: string
+  uptimeBps: number | null
+  devices: number
+  salesCount: number
+  salesPesewas: number
+  backedUp: number
+  alertsOpened: number
+  criticalOpened: number
+}
+
+export interface FleetTrends {
+  days: TrendDay[]
+  versions: { day: string; version: string; devices: number }[]
+  summary: {
+    uptimeBps: number | null
+    previousUptimeBps: number | null
+    salesPesewas: number
+    previousSalesPesewas: number
+    alertsOpened: number
+    previousAlertsOpened: number
+  }
+}
+
+export interface ShopSlo {
+  shopId: string | null
+  shopName: string | null
+  devices: number
+  days: number
+  uptimeBps: number
+  targetBps: number
+  budgetUsedPct: number
+  budgetMinutesLeft: number
+  breaching: boolean
+  worstDay: { day: string; uptimeBps: number } | null
+}
+
+export interface BackupTerminal {
+  deviceId: string
+  shopId: string | null
+  shopName: string | null
+  lastBackupAt: string | null
+  backupSizeBytes: number | null
+  backupError: string | null
+  dbSizeBytes: number | null
+  lastReportAt: string
+  mode: string | null
 }
 
 export interface ErrorRow {
@@ -301,6 +530,21 @@ export interface FleetConfigRow extends FleetThresholds {
   webhookLastFailureError: string | null
   updatedBy: string | null
   updatedAt: string
+  /** Minutes from local midnight; equal values mean no quiet window at all. */
+  quietStartMinute: number
+  quietEndMinute: number
+  quietTimezone: string
+  quietBreakthrough: 'critical' | 'none'
+  sloTargetBps: number
+}
+
+/** Quiet hours and the availability target — routing, not detection. */
+export interface FleetSettings {
+  quietStartMinute: number
+  quietEndMinute: number
+  quietTimezone: string
+  quietBreakthrough: 'critical' | 'none'
+  sloTargetBps: number
 }
 
 export interface AuditRow {
@@ -533,6 +777,52 @@ export interface Api {
   evaluateAlerts(): Promise<void>
   fleetConfig(): Promise<{ config: FleetConfigRow; defaults: FleetThresholds }>
   updateFleetConfig(patch: Partial<FleetThresholds>): Promise<FleetConfigRow>
+  updateFleetSettings(patch: Partial<FleetSettings>): Promise<FleetConfigRow>
+
+  /* -- what an operator decided about a terminal -- */
+
+  /** Recent liveness for a whole page at once, bucketed for the row strip. */
+  heartbeats(deviceIds: string[], hours?: number): Promise<HeartbeatStrip[]>
+  notes(deviceId: string): Promise<NoteRow[]>
+  addNote(deviceId: string, body: string, pinned?: boolean): Promise<NoteRow>
+  pinNote(id: string, pinned: boolean): Promise<void>
+  deleteNote(id: string): Promise<void>
+  tagCatalogue(): Promise<TagCount[]>
+  addTag(deviceId: string, tag: string): Promise<string>
+  removeTag(deviceId: string, tag: string): Promise<void>
+  mutes(all?: boolean): Promise<MuteRow[]>
+  openMute(input: {
+    scope: 'device' | 'shop' | 'fleet'
+    deviceId?: string
+    shopId?: string
+    reason: string
+    minutes: number
+  }): Promise<MuteRow>
+  cancelMute(id: string): Promise<void>
+
+  /* -- staged rollouts -- */
+
+  rollouts(): Promise<{ rollouts: RolloutRow[]; active: RolloutRow | null }>
+  rollout(id: string): Promise<RolloutDetail>
+  createRollout(input: CreateRolloutInput): Promise<RolloutDetail>
+  promoteRollout(id: string): Promise<RolloutDetail>
+  haltRollout(id: string): Promise<RolloutDetail>
+  rollbackRollout(id: string): Promise<{ reverted: number; rollout: RolloutDetail }>
+
+  /* -- routing -- */
+
+  channels(): Promise<ChannelRow[]>
+  createChannel(input: ChannelInput): Promise<ChannelRow>
+  updateChannel(id: string, patch: Partial<ChannelInput>): Promise<ChannelRow>
+  deleteChannel(id: string): Promise<void>
+  testChannel(id: string): Promise<{ ok: boolean; error: string | null }>
+  alertDeliveries(alertId: string): Promise<DeliveryRow[]>
+
+  /* -- history and promises -- */
+
+  trends(days?: number): Promise<FleetTrends>
+  slo(days?: number): Promise<{ targetBps: number; days: number; shops: ShopSlo[] }>
+  backups(): Promise<BackupTerminal[]>
   audit(limit?: number): Promise<AuditRow[]>
   operators(): Promise<OperatorAccount[]>
   createOperator(input: CreateOperatorInput): Promise<Operator>
@@ -687,6 +977,8 @@ export function createApi(
           shopId: q.shopId,
           platform: q.platform,
           version: q.appVersion,
+          tag: q.tag,
+          muted: q.muted,
           sort: q.sort,
           dir: q.dir,
           limit: q.limit,
@@ -749,6 +1041,120 @@ export function createApi(
           body: JSON.stringify(patch),
         })
       ).config,
+
+    updateFleetSettings: async (patch) =>
+      (
+        await call<{ config: FleetConfigRow }>('/fleet/settings', {
+          method: 'PUT',
+          body: JSON.stringify(patch),
+        })
+      ).config,
+
+    /* -- annotations -- */
+
+    heartbeats: async (deviceIds, hours = 24) =>
+      deviceIds.length === 0
+        ? []
+        : (await post<{ strips: HeartbeatStrip[] }>('/fleet/devices/heartbeats', { deviceIds, hours }))
+            .strips,
+
+    notes: async (deviceId) =>
+      (await call<{ notes: NoteRow[] }>(`/fleet/devices/${encodeURIComponent(deviceId)}/notes`)).notes,
+
+    addNote: async (deviceId, body, pinned) =>
+      (
+        await post<{ note: NoteRow }>(`/fleet/devices/${encodeURIComponent(deviceId)}/notes`, {
+          body,
+          pinned,
+        })
+      ).note,
+
+    pinNote: async (id, pinned) => {
+      await post(`/fleet/notes/${encodeURIComponent(id)}/pin`, { pinned })
+    },
+
+    deleteNote: async (id) => {
+      await call(`/fleet/notes/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+
+    tagCatalogue: async () => (await call<{ tags: TagCount[] }>('/fleet/tags')).tags,
+
+    addTag: async (deviceId, tag) =>
+      (await post<{ tag: string }>(`/fleet/devices/${encodeURIComponent(deviceId)}/tags`, { tag }))
+        .tag,
+
+    removeTag: async (deviceId, tag) => {
+      await call(
+        `/fleet/devices/${encodeURIComponent(deviceId)}/tags/${encodeURIComponent(tag)}`,
+        { method: 'DELETE' },
+      )
+    },
+
+    mutes: async (all = false) =>
+      (await call<{ mutes: MuteRow[] }>(`/fleet/mutes${all ? '?all=1' : ''}`)).mutes,
+
+    openMute: async (input) => (await post<{ mute: MuteRow }>('/fleet/mutes', input)).mute,
+
+    cancelMute: async (id) => {
+      await post(`/fleet/mutes/${encodeURIComponent(id)}/cancel`)
+    },
+
+    /* -- rollouts -- */
+
+    rollouts: () => call('/fleet/rollouts'),
+
+    rollout: async (id) =>
+      (await call<{ rollout: RolloutDetail }>(`/fleet/rollouts/${encodeURIComponent(id)}`)).rollout,
+
+    createRollout: async (input) =>
+      (await post<{ rollout: RolloutDetail }>('/fleet/rollouts', input)).rollout,
+
+    promoteRollout: async (id) =>
+      (await post<{ rollout: RolloutDetail }>(`/fleet/rollouts/${encodeURIComponent(id)}/promote`))
+        .rollout,
+
+    haltRollout: async (id) =>
+      (await post<{ rollout: RolloutDetail }>(`/fleet/rollouts/${encodeURIComponent(id)}/halt`))
+        .rollout,
+
+    rollbackRollout: (id) => post(`/fleet/rollouts/${encodeURIComponent(id)}/rollback`),
+
+    /* -- routing -- */
+
+    channels: async () => (await call<{ channels: ChannelRow[] }>('/fleet/channels')).channels,
+
+    createChannel: async (input) =>
+      (await post<{ channel: ChannelRow }>('/fleet/channels', input)).channel,
+
+    updateChannel: async (id, patch) =>
+      (
+        await call<{ channel: ChannelRow }>(`/fleet/channels/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(patch),
+        })
+      ).channel,
+
+    deleteChannel: async (id) => {
+      await call(`/fleet/channels/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+
+    testChannel: (id) => post(`/fleet/channels/${encodeURIComponent(id)}/test`),
+
+    alertDeliveries: async (alertId) =>
+      (
+        await call<{ deliveries: DeliveryRow[] }>(
+          `/fleet/alerts/${encodeURIComponent(alertId)}/deliveries`,
+        )
+      ).deliveries,
+
+    /* -- history and promises -- */
+
+    trends: (days = 30) => call<FleetTrends>(`/fleet/trends${query({ days })}`),
+
+    slo: (days = 30) =>
+      call<{ targetBps: number; days: number; shops: ShopSlo[] }>(`/fleet/slo${query({ days })}`),
+
+    backups: async () => (await call<{ terminals: BackupTerminal[] }>('/fleet/backups')).terminals,
 
     audit: async (limit = 100) =>
       (await call<{ entries: AuditRow[] }>(`/fleet/audit${query({ limit })}`)).entries,
