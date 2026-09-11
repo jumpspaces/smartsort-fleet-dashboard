@@ -54,6 +54,10 @@ export function Shop({
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
+  // Removed machines are folded away rather than dropped: an operator who
+  // removes the wrong row needs to find it again, and "T3 used to exist" is
+  // part of reading a shop's history.
+  const [showRemoved, setShowRemoved] = useState(false)
   // The shop's terminals and how they are actually doing. Both tables carry
   // shopId and neither view used to read the other's, so diagnosing "Kumasi is
   // down" meant searching twice with no guarantee the names matched.
@@ -100,6 +104,8 @@ export function Shop({
   }
 
   const back = { label: 'Shops', onClick: onBack }
+  const live = shop?.machines.filter((m) => !m.removedAt) ?? []
+  const removed = shop?.machines.filter((m) => m.removedAt) ?? []
 
   if (!shop) {
     return (
@@ -170,13 +176,17 @@ export function Shop({
               )}
             </Card>
 
-            <Card title={`Machines${shop.machines.length ? ` (${shop.machines.length})` : ''}`}>
+            <Card title={`Machines${live.length ? ` (${live.length})` : ''}`}>
               {shop.machines.length === 0 ? (
                 <Empty icon="terminals" title="No machine connected yet">
                   The shop connects one by entering its claim code on the desktop app.
                 </Empty>
+              ) : live.length === 0 && !showRemoved ? (
+                <Empty icon="terminals" title="Every machine here has been removed">
+                  This shop has no terminal attached. Issue a connect code to bring one back.
+                </Empty>
               ) : (
-                shop.machines.map((m) => (
+                (showRemoved ? shop.machines : live).map((m) => (
                   <div key={m.keyId} className="machine">
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -184,11 +194,16 @@ export function Shop({
                           {m.terminalCode}
                         </span>
                         <span className="strong">{m.machineName ?? 'Unnamed machine'}</span>
-                        {m.mode === 'peer' && <Chip tone="idle">Peer till</Chip>}
+                        {m.mode === 'peer' && !m.removedAt && <Chip tone="idle">Peer till</Chip>}
+                        {m.removedAt && <Chip tone="idle">Removed</Chip>}
                       </div>
                       <div className="row-sub mono">{m.keyPrefix}…</div>
                       <div className="row-sub">
-                        {m.revokedAt ? (
+                        {m.removedAt ? (
+                          <span title={exact(m.removedAt)}>
+                            Removed from this shop {timeAgo(m.removedAt)}
+                          </span>
+                        ) : m.revokedAt ? (
                           <span title={exact(m.revokedAt)}>Revoked {timeAgo(m.revokedAt)}</span>
                         ) : m.lastSeenAt ? (
                           <span title={exact(m.lastSeenAt)}>Last synced {timeAgo(m.lastSeenAt)}</span>
@@ -201,7 +216,7 @@ export function Shop({
                           can diverge — a machine can sync fine while offline from the fleet's
                           point of view, or vice versa — so show both rather than let one imply
                           the other. */}
-                      {!m.revokedAt && (
+                      {!m.revokedAt && !m.removedAt && (
                         <div className="row-sub">
                           {m.lastReportAt ? (
                             <span title={exact(m.lastReportAt)}>
@@ -214,38 +229,97 @@ export function Shop({
                       )}
                     </div>
 
-                    {!m.revokedAt &&
-                      (confirming === m.keyId ? (
-                        <div style={{ display: 'flex', gap: 6 }}>
+                    {m.removedAt ? (
+                      <Button
+                        size="sm"
+                        busy={busy === m.keyId}
+                        busyLabel="Restoring…"
+                        onClick={() => void run(m.keyId, () => api.restoreMachine(m.keyId))}
+                      >
+                        Put back
+                      </Button>
+                    ) : confirming === `revoke:${m.keyId}` ? (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          busy={busy === m.keyId}
+                          busyLabel="Revoking…"
+                          onClick={() =>
+                            void run(m.keyId, async () => {
+                              await api.revokeStoreKey(m.keyId)
+                              setConfirming(null)
+                            })
+                          }
+                        >
+                          Confirm revoke
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setConfirming(null)}>
+                          Keep
+                        </Button>
+                      </div>
+                    ) : confirming === `remove:${m.keyId}` ? (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          busy={busy === m.keyId}
+                          busyLabel="Removing…"
+                          onClick={() =>
+                            void run(m.keyId, async () => {
+                              await api.removeMachine(m.keyId)
+                              setConfirming(null)
+                            })
+                          }
+                        >
+                          Confirm remove
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setConfirming(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {/* Revoke stays for the common, reversible case: a key that
+                            must stop working while the till stays on the shop. */}
+                        {!m.revokedAt && (
                           <Button
                             variant="danger"
                             size="sm"
-                            busy={busy === m.keyId}
-                            busyLabel="Revoking…"
-                            onClick={() =>
-                              void run(m.keyId, async () => {
-                                await api.revokeStoreKey(m.keyId)
-                                setConfirming(null)
-                              })
-                            }
+                            onClick={() => setConfirming(`revoke:${m.keyId}`)}
                           >
-                            Confirm revoke
+                            Revoke
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => setConfirming(null)}>
-                            Keep
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button variant="danger" size="sm" onClick={() => setConfirming(m.keyId)}>
-                          Revoke
+                        )}
+                        <Button size="sm" onClick={() => setConfirming(`remove:${m.keyId}`)}>
+                          Remove
                         </Button>
-                      ))}
+                      </div>
+                    )}
                   </div>
                 ))
+              )}
+              {removed.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowRemoved((v) => !v)}
+                  style={{ marginTop: 10 }}
+                >
+                  {showRemoved
+                    ? 'Hide removed'
+                    : `Show ${removed.length} removed machine${removed.length === 1 ? '' : 's'}`}
+                </Button>
               )}
               <p className="hint" style={{ marginTop: 12 }}>
                 Revoking stops a machine syncing. It keeps selling offline and its data is kept —
                 reconnect it by claiming again with the owner’s sign-in.
+              </p>
+              <p className="hint" style={{ marginTop: 6 }}>
+                Removing does that and takes the terminal off this shop: out of its health, its
+                alerts and the terminals list. Use it for a till that has been scrapped, sold or
+                replaced. Its sales stay, and its terminal code stays spent, so no new machine can
+                reuse the receipt numbers it wrote. You can put it back.
               </p>
             </Card>
 

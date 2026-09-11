@@ -70,6 +70,13 @@ export interface DeviceRow {
   shopId: string | null
   shopName: string | null
   /**
+   * Set = an operator took this terminal off its shop (Shop → Machines →
+   * Remove). Such a terminal is out of the fleet lists, health and alerts, so
+   * one only reaches this page by a direct link — which is exactly when the
+   * page has to say why it looks abandoned.
+   */
+  removedAt: string | null
+  /**
    * From the machine's store key, not the heartbeat: what the shop called this
    * machine when it connected it, and the short code ("T3") that prefixes its
    * receipts. Both null until the machine claims a key.
@@ -182,6 +189,8 @@ export interface DeviceQuery {
   appVersion?: string
   tag?: string
   muted?: 'muted' | 'unmuted'
+  /** Include terminals taken off their shop. Off by default — they are out of the fleet. */
+  includeRemoved?: boolean
   sort?: string
   dir?: 'asc' | 'desc'
   limit?: number
@@ -679,6 +688,12 @@ export interface ShopMachine {
   createdAt: string
   lastSeenAt: string | null
   revokedAt: string | null
+  /**
+   * Set = an operator took this terminal off the shop. Sent rather than
+   * filtered server-side so the page can fold removed machines away behind a
+   * count and still offer to put one back.
+   */
+  removedAt: string | null
   lastReportAt: string | null
 }
 
@@ -974,6 +989,15 @@ export interface Api {
    */
   issueReconnectCode(shopId: string): Promise<{ reconnectCode: string; expiresAt: string }>
   revokeStoreKey(keyId: string): Promise<void>
+  /**
+   * Take a terminal off its shop for good: revokes the key AND stops the
+   * machine counting as one of the shop's terminals — out of its health, its
+   * alerts and the fleet list. The row survives so the terminal code stays
+   * spent; see stores.service.ts#removeMachine.
+   */
+  removeMachine(keyId: string): Promise<void>
+  /** Undo a removal. Does not un-revoke — the machine comes back visible, not syncing. */
+  restoreMachine(keyId: string): Promise<void>
 
   /* -- a shop's inventory, on its behalf -- */
 
@@ -1104,6 +1128,7 @@ export function createApi(
           version: q.appVersion,
           tag: q.tag,
           muted: q.muted,
+          includeRemoved: q.includeRemoved ? '1' : undefined,
           sort: q.sort,
           dir: q.dir,
           limit: q.limit,
@@ -1386,6 +1411,14 @@ export function createApi(
 
     revokeStoreKey: async (keyId) => {
       await post(`/api/stores/keys/${encodeURIComponent(keyId)}/revoke`)
+    },
+
+    removeMachine: async (keyId) => {
+      await post(`/api/stores/keys/${encodeURIComponent(keyId)}/remove`)
+    },
+
+    restoreMachine: async (keyId) => {
+      await post(`/api/stores/keys/${encodeURIComponent(keyId)}/restore`)
     },
 
     shopInventory: (shopId) => call<ShopInventory>(shopPath(shopId, '/inventory')),

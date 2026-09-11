@@ -122,6 +122,18 @@ export function Device({
 
       {loadError && <Notice>{loadError}</Notice>}
 
+      {/* A removed terminal is out of every list, so this page is only reached by
+          a direct link — from the audit log, or a bookmark. Without this it looks
+          like an ordinary till that simply stopped reporting, which is the one
+          reading that would send someone to investigate a machine in a skip. */}
+      {device.removedAt && (
+        <Notice>
+          This terminal was removed from{' '}
+          {device.shopName ?? 'its shop'} {timeAgo(device.removedAt)}. It is out of the shop's
+          health and raises no alerts. Put it back from the shop's Machines list.
+        </Notice>
+      )}
+
       <Columns
         main={
           <>
