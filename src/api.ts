@@ -83,6 +83,8 @@ export interface DeviceRow {
    */
   machineName: string | null
   terminalCode: string | null
+  /** The store key behind this terminal — what `renameMachine` takes. Null until it claims one. */
+  keyId: string | null
   appVersion: string | null
   /** Renderer hot-patch in use, or null on the build from the installer. */
   bundleVersion: string | null
@@ -995,6 +997,11 @@ export interface Api {
    * alerts and the fleet list. The row survives so the terminal code stays
    * spent; see stores.service.ts#removeMachine.
    */
+  /**
+   * Change what a till is called. Blank clears the name back to its terminal
+   * code. Returns the name as stored, so the caller renders what was saved.
+   */
+  renameMachine(keyId: string, machineName: string): Promise<string | null>
   removeMachine(keyId: string): Promise<void>
   /** Undo a removal. Does not un-revoke — the machine comes back visible, not syncing. */
   restoreMachine(keyId: string): Promise<void>
@@ -1412,6 +1419,14 @@ export function createApi(
     revokeStoreKey: async (keyId) => {
       await post(`/api/stores/keys/${encodeURIComponent(keyId)}/revoke`)
     },
+
+    renameMachine: async (keyId, machineName) =>
+      (
+        await post<{ machineName: string | null }>(
+          `/api/stores/keys/${encodeURIComponent(keyId)}/rename`,
+          { machineName },
+        )
+      ).machineName,
 
     removeMachine: async (keyId) => {
       await post(`/api/stores/keys/${encodeURIComponent(keyId)}/remove`)

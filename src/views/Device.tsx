@@ -58,6 +58,9 @@ export function Device({
   const [errors, setErrors] = useState<ErrorRow[] | null>(null)
   const [history, setHistory] = useState<DeviceHistory | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Renaming, from the page an operator is already on. Null = not renaming.
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
+  const [savingName, setSavingName] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -74,6 +77,19 @@ export function Device({
       setLoadError(err instanceof Error ? err.message : 'Could not load this terminal')
     }
   }, [api, deviceId])
+
+  async function saveName(keyId: string) {
+    setSavingName(true)
+    try {
+      await api.renameMachine(keyId, nameDraft ?? '')
+      setNameDraft(null)
+      await load()
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Could not rename this terminal')
+    } finally {
+      setSavingName(false)
+    }
+  }
 
   // The shell's poll drives this too, so a page left open on the phone keeps
   // telling the truth about the terminal being discussed.
@@ -103,12 +119,48 @@ export function Device({
         subtitle={
           <span className="cell-stack">
             {device.terminalCode && <span className="code-chip">{device.terminalCode}</span>}
-            {device.machineName && <span className="strong">{device.machineName}</span>}
+            {nameDraft === null ? (
+              device.machineName && <span className="strong">{device.machineName}</span>
+            ) : (
+              <input
+                className="input"
+                style={{ maxWidth: 220 }}
+                autoFocus
+                maxLength={100}
+                value={nameDraft}
+                placeholder={device.terminalCode ?? 'Name this till'}
+                aria-label="Name for this till"
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && device.keyId) void saveName(device.keyId)
+                  if (e.key === 'Escape') setNameDraft(null)
+                }}
+              />
+            )}
             <span className="mono">{device.deviceId}</span>
           </span>
         }
         actions={
           <>
+            {/* Only a claimed terminal has a name to change — an unclaimed one has
+                no store key to hang it on, and nothing yet to tell apart. */}
+            {device.keyId &&
+              (nameDraft === null ? (
+                <Button onClick={() => setNameDraft(device.machineName ?? '')}>Rename</Button>
+              ) : (
+                <>
+                  <Button
+                    busy={savingName}
+                    busyLabel="Saving…"
+                    onClick={() => void saveName(device.keyId!)}
+                  >
+                    Save name
+                  </Button>
+                  <Button variant="ghost" onClick={() => setNameDraft(null)}>
+                    Cancel
+                  </Button>
+                </>
+              ))}
             <CopyButton value={device.deviceId} label="Copy device ID" size="md" />
             {device.shopId && (
               <Button onClick={() => onNavigate('shop', { id: device.shopId! })}>

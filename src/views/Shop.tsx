@@ -58,6 +58,10 @@ export function Shop({
   // removes the wrong row needs to find it again, and "T3 used to exist" is
   // part of reading a shop's history.
   const [showRemoved, setShowRemoved] = useState(false)
+  // The till being renamed, and the draft. Held here rather than in the row so
+  // opening a second rename closes the first — two open editors on one list is
+  // how someone saves the wrong one.
+  const [renaming, setRenaming] = useState<{ keyId: string; draft: string } | null>(null)
   // The shop's terminals and how they are actually doing. Both tables carry
   // shopId and neither view used to read the other's, so diagnosing "Kumasi is
   // down" meant searching twice with no guarantee the names matched.
@@ -101,6 +105,16 @@ export function Shop({
     } finally {
       setBusy(null)
     }
+  }
+
+  // Blank is a real choice, not an empty form: it clears the name back to the
+  // terminal code, which is what an operator wants after a bad one.
+  async function saveName(keyId: string) {
+    const draft = renaming?.draft ?? ''
+    await run(`name:${keyId}`, async () => {
+      await api.renameMachine(keyId, draft)
+      setRenaming(null)
+    })
   }
 
   const back = { label: 'Shops', onClick: onBack }
@@ -190,10 +204,58 @@ export function Shop({
                   <div key={m.keyId} className="machine">
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {/* Never editable, and shown beside the name for that reason:
+                            the code is what the receipts carry, so it is the thing
+                            that still identifies this till after a rename. */}
                         <span className="code-chip" data-revoked={m.revokedAt ? 'true' : undefined}>
                           {m.terminalCode}
                         </span>
-                        <span className="strong">{m.machineName ?? 'Unnamed machine'}</span>
+                        {renaming?.keyId === m.keyId ? (
+                          <input
+                            className="input"
+                            style={{ maxWidth: 220 }}
+                            autoFocus
+                            maxLength={100}
+                            value={renaming.draft}
+                            placeholder={m.terminalCode}
+                            aria-label={`Name for ${m.terminalCode}`}
+                            onChange={(e) =>
+                              setRenaming({ keyId: m.keyId, draft: e.target.value })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void saveName(m.keyId)
+                              if (e.key === 'Escape') setRenaming(null)
+                            }}
+                          />
+                        ) : (
+                          <span className="strong">{m.machineName ?? 'Unnamed machine'}</span>
+                        )}
+                        {renaming?.keyId === m.keyId && (
+                          <>
+                            <Button
+                              size="sm"
+                              busy={busy === `name:${m.keyId}`}
+                              busyLabel="Saving…"
+                              onClick={() => void saveName(m.keyId)}
+                            >
+                              Save
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setRenaming(null)}>
+                              Cancel
+                            </Button>
+                          </>
+                        )}
+                        {!m.removedAt && renaming?.keyId !== m.keyId && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setRenaming({ keyId: m.keyId, draft: m.machineName ?? '' })
+                            }
+                          >
+                            Rename
+                          </Button>
+                        )}
                         {m.mode === 'peer' && !m.removedAt && <Chip tone="idle">Peer till</Chip>}
                         {m.removedAt && <Chip tone="idle">Removed</Chip>}
                       </div>
