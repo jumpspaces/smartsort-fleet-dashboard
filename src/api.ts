@@ -717,6 +717,106 @@ export interface ShopRow {
   machines: ShopMachine[]
 }
 
+export type AssistantModelId = 'claude-sonnet-5-5' | 'claude-opus-5-5' | 'claude-haiku-4-5'
+
+export interface AssistantModel {
+  id: AssistantModelId
+  label: string
+  blurb: string
+  /** $ per million tokens. */
+  price: { input: number; output: number; cacheRead: number; cacheWrite: number }
+}
+
+export type LimitMetric = 'requests' | 'spend' | 'tokens'
+export type LimitPeriod = 'hour' | 'day' | 'week' | 'month'
+export type LimitFeature = 'chat' | 'briefing' | 'invoice'
+
+/**
+ * "At most `value` <metric> per <period>", for one feature or (null) all of
+ * them. Spend is in US dollars here. On a shop, a null value lifts the fleet's
+ * rule for the same metric, period and feature ("no limit").
+ */
+export interface LimitRule {
+  metric: LimitMetric
+  period: LimitPeriod
+  feature: LimitFeature | null
+  value: number | null
+}
+
+/** A limit as it applies to a shop right now, with how much of it is used (spend in US$). */
+export interface LimitStanding extends LimitRule {
+  value: number
+  used: number
+  source: 'fleet' | 'shop'
+  /** When the period starts again; null for the rolling hour. */
+  resetsAt: string | null
+}
+
+export type ReportPeriod = 'today' | 'week' | 'month' | 'last_month' | '30d'
+
+/** Volume, tokens and estimated spend (micro-dollars) over some period. */
+export interface AssistantTotals {
+  requests: number
+  errors: number
+  inputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  outputTokens: number
+  totalTokens: number
+  costMicros: number
+}
+
+export interface AssistantDay {
+  day: string
+  requests: number
+  tokens: number
+  costMicros: number
+}
+
+export interface FleetAssistantUsage {
+  period: ReportPeriod
+  range: { from: string; to: string | null }
+  totals: AssistantTotals
+  /** Shops that used it in the period, biggest spenders first. */
+  shops: Array<
+    AssistantTotals & {
+      shopId: string
+      shopName: string
+      lastUsedAt: string
+      model: AssistantModelId
+      /** The limit the shop is closest to (or past), in stored units (spend in micro-dollars). */
+      nearestLimit: (Omit<LimitStanding, 'value' | 'used'> & { value: number; used: number; share: number }) | null
+    }
+  >
+  byDay: AssistantDay[]
+}
+
+/** A shop's own settings; a null model follows the fleet default. */
+export interface ShopAssistantSettings {
+  model: AssistantModelId | null
+  briefing: boolean
+  invoiceReading: boolean
+  updatedBy: string | null
+  updatedAt: string | null
+}
+
+export interface ShopAssistantDetail {
+  settings: ShopAssistantSettings
+  /** What it actually runs on. */
+  plan: { model: AssistantModelId; briefing: boolean; invoiceReading: boolean }
+  limits: { fleet: LimitRule[]; own: LimitRule[]; current: LimitStanding[] }
+  access: { allowed: true } | { allowed: false; by: 'system' | 'shop' }
+  usage: {
+    period: ReportPeriod
+    range: { from: string; to: string | null }
+    totals: AssistantTotals
+    byKind: Array<AssistantTotals & { kind: 'chat' | 'briefing' | 'invoice' | 'setup' }>
+    byModel: Array<AssistantTotals & { model: string }>
+    byDay: AssistantDay[]
+    lastUsedAt: string | null
+  }
+}
+
 /** The shop assistant's switches, as GET /fleet/assistant returns them. */
 export interface AssistantSwitches {
   /** Fleet-wide master switch. Off overrides every shop. */
@@ -736,6 +836,13 @@ export interface AssistantSwitches {
     /** The server has SECRETS_KEY set, so it can save a key at all. */
     canStore: boolean
   }
+  /** The model every shop runs on unless it has its own. */
+  defaults: { model: AssistantModelId }
+  /** Limits every shop follows unless its own rules say otherwise (spend in US$). */
+  limits: LimitRule[]
+  /** The server's own per-shop hourly ceiling, under every configured limit. */
+  serverHourlyLimit: number
+  models: AssistantModel[]
   /** Shops switched off one by one, newest first. */
   blockedShops: Array<{
     shopId: string
@@ -1027,6 +1134,18 @@ export interface Api {
   setAssistantKey(apiKey: string): Promise<AssistantSwitches>
   /** Forget the console's key. Admin only. */
   removeAssistantKey(): Promise<AssistantSwitches>
+  /** The fleet's default model. Admin only. */
+  setAssistantDefaults(patch: { model: AssistantModelId }): Promise<AssistantSwitches>
+  /** Replace the fleet's limit rules. Admin only. */
+  setFleetLimits(rules: LimitRule[]): Promise<AssistantSwitches>
+  /** Assistant use across the fleet over a period. */
+  assistantUsage(period?: ReportPeriod): Promise<FleetAssistantUsage>
+  /** One shop's assistant: settings, limits, usage over a period. */
+  shopAssistant(shopId: string, period?: ReportPeriod): Promise<ShopAssistantDetail>
+  /** Change one shop's model or features. Admin only. */
+  setShopAssistantSettings(shopId: string, patch: { model?: AssistantModelId | null; briefing?: boolean; invoiceReading?: boolean }): Promise<void>
+  /** Replace one shop's own limit rules (empty = follow the fleet). Admin only. */
+  setShopLimits(shopId: string, rules: LimitRule[]): Promise<void>
   /** One shop's on/off, with an optional reason kept on the console. Operator and up. */
   setShopAssistant(shopId: string, enabled: boolean, reason?: string): Promise<void>
   revokeStoreKey(keyId: string): Promise<void>
@@ -1464,6 +1583,25 @@ export function createApi(
       call<AssistantSwitches>('/fleet/assistant/key', { method: 'PUT', body: JSON.stringify({ apiKey }) }),
 
     removeAssistantKey: () => call<AssistantSwitches>('/fleet/assistant/key', { method: 'DELETE' }),
+
+    setAssistantDefaults: (patch) =>
+      call<AssistantSwitches>('/fleet/assistant/defaults', { method: 'PUT', body: JSON.stringify(patch) }),
+
+    setFleetLimits: (rules) =>
+      call<AssistantSwitches>('/fleet/assistant/limits', { method: 'PUT', body: JSON.stringify({ rules }) }),
+
+    assistantUsage: (period = 'month') => call<FleetAssistantUsage>(`/fleet/assistant/usage?period=${period}`),
+
+    shopAssistant: (shopId, period = 'month') =>
+      call<ShopAssistantDetail>(shopPath(shopId, `/assistant?period=${period}`)),
+
+    setShopAssistantSettings: async (shopId, patch) => {
+      await call(shopPath(shopId, '/assistant/settings'), { method: 'PUT', body: JSON.stringify(patch) })
+    },
+
+    setShopLimits: async (shopId, rules) => {
+      await call(shopPath(shopId, '/assistant/limits'), { method: 'PUT', body: JSON.stringify({ rules }) })
+    },
 
     setShopAssistant: async (shopId, enabled, reason) => {
       await call(shopPath(shopId, '/assistant'), {

@@ -3,6 +3,7 @@ import { Forbidden, Unauthorized, type Api, type AssistantSwitches as Switches }
 import { Button, Notice, Status } from '../components/ui.tsx'
 import { exact, timeAgo } from '../lib/format.ts'
 import { buildHash } from '../lib/route.ts'
+import { LimitsEditor } from './LimitsEditor.tsx'
 
 /**
  * Settings → Shop assistant: the fleet-wide switch, and every shop switched off
@@ -79,6 +80,8 @@ export function AssistantSwitches({ api, onUnauthorized }: { api: Api; onUnautho
       {error && <Notice>{error}</Notice>}
 
       <ApiKeyPanel data={data} busy={busy} run={run} onSaved={setData} api={api} />
+
+      <DefaultsPanel data={data} busy={busy} run={run} onSaved={setData} api={api} />
 
       <div className="cmd-head" style={{ marginTop: 20, marginBottom: 6 }}>
         <span className="strong">Fleet-wide switch</span>
@@ -311,6 +314,67 @@ function ApiKeyPanel({
             : 'This clears the saved key.'}
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * What every shop gets unless its page says otherwise: the model, and the
+ * usage limits every shop is held to.
+ */
+function DefaultsPanel({
+  api,
+  data,
+  busy,
+  run,
+  onSaved,
+}: {
+  api: Api
+  data: Switches
+  busy: string | null
+  run: (key: string, action: () => Promise<void>) => Promise<void>
+  onSaved: (next: Switches) => void
+}) {
+  const chosen = data.models.find((m) => m.id === data.defaults.model)
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div className="cmd-head" style={{ marginBottom: 6 }}>
+        <span className="strong">Defaults for every shop</span>
+      </div>
+      <label className="field" style={{ marginBottom: 12 }}>
+        <span>Model</span>
+        <select
+          className="input"
+          value={data.defaults.model}
+          disabled={busy === 'model'}
+          onChange={(e) =>
+            void run('model', async () => {
+              onSaved(await api.setAssistantDefaults({ model: e.target.value as Switches['defaults']['model'] }))
+            })
+          }
+        >
+          {data.models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} — ${m.price.input} / ${m.price.output} per M tokens
+            </option>
+          ))}
+        </select>
+        {chosen && <span className="hint">{chosen.blurb}</span>}
+      </label>
+      <div className="hint" style={{ marginBottom: 6 }}>
+        Usage limits every shop follows (a shop’s page can change them for that shop). Under all of them, the server
+        holds each shop to {data.serverHourlyLimit} requests an hour.
+      </div>
+      <LimitsEditor
+        scope="fleet"
+        rules={data.limits}
+        busy={busy === 'limits'}
+        onSave={(rules) =>
+          void run('limits', async () => {
+            onSaved(await api.setFleetLimits(rules))
+          })
+        }
+      />
     </div>
   )
 }

@@ -94,3 +94,18 @@ export function hostOf(base: string): string {
     return base.replace(/^https?:\/\//, '').replace(/\/+$/, '') || '—'
   }
 }
+
+/**
+ * An estimated dollar amount from micro-dollars (the assistant's spend):
+ * "$0.0123" under a cent so small costs don't all read "$0.00", cents above.
+ */
+export function usd(micros: number): string {
+  const dollars = micros / 1_000_000
+  if (dollars > 0 && dollars < 0.01) return `$${dollars.toFixed(4)}`
+  return `$${dollars.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+/** 12345 → "12.3k". */
+export function compactCount(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}

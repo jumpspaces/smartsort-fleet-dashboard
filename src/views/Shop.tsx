@@ -31,6 +31,7 @@ import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 import { ClaimPanel, type ClaimResult, type CodeKind } from './ClaimCode.tsx'
 import { ShopInventoryPanels } from './ShopInventory.tsx'
 import { ShopAssistantCard } from './ShopAssistantCard.tsx'
+import { ShopAssistantPlan } from './ShopAssistantPlan.tsx'
 
 export function Shop({
   api,
@@ -461,6 +462,7 @@ export function Shop({
             )}
 
             <ShopAssistantCard api={api} shopId={shop.id} onUnauthorized={onUnauthorized} />
+            <ShopAssistantPlan api={api} shopId={shop.id} onUnauthorized={onUnauthorized} />
 
             <Card title="Shop">
               <div className="card-status">
