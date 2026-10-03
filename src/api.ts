@@ -723,6 +723,19 @@ export interface AssistantSwitches {
   systemEnabled: boolean
   systemChangedBy: string | null
   systemChangedAt: string | null
+  /** The Anthropic key it runs on. The key itself never leaves the server. */
+  apiKey: {
+    /** Which key is in use: the console's, the server's ANTHROPIC_API_KEY, or none. */
+    source: 'console' | 'environment' | null
+    /** "sk-ant-…x7Qa" for a console key. */
+    hint: string | null
+    setBy: string | null
+    setAt: string | null
+    /** A console key is saved but can't be decrypted any more; enter it again. */
+    unreadable: boolean
+    /** The server has SECRETS_KEY set, so it can save a key at all. */
+    canStore: boolean
+  }
   /** Shops switched off one by one, newest first. */
   blockedShops: Array<{
     shopId: string
@@ -1010,6 +1023,10 @@ export interface Api {
   assistantSwitches(): Promise<AssistantSwitches>
   /** Fleet-wide on/off. Admin only. */
   setSystemAssistant(enabled: boolean): Promise<AssistantSwitches>
+  /** Check a key with Anthropic and store it (sealed). Admin only. */
+  setAssistantKey(apiKey: string): Promise<AssistantSwitches>
+  /** Forget the console's key. Admin only. */
+  removeAssistantKey(): Promise<AssistantSwitches>
   /** One shop's on/off, with an optional reason kept on the console. Operator and up. */
   setShopAssistant(shopId: string, enabled: boolean, reason?: string): Promise<void>
   revokeStoreKey(keyId: string): Promise<void>
@@ -1442,6 +1459,11 @@ export function createApi(
 
     setSystemAssistant: (enabled) =>
       call<AssistantSwitches>('/fleet/assistant', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+
+    setAssistantKey: (apiKey) =>
+      call<AssistantSwitches>('/fleet/assistant/key', { method: 'PUT', body: JSON.stringify({ apiKey }) }),
+
+    removeAssistantKey: () => call<AssistantSwitches>('/fleet/assistant/key', { method: 'DELETE' }),
 
     setShopAssistant: async (shopId, enabled, reason) => {
       await call(shopPath(shopId, '/assistant'), {
