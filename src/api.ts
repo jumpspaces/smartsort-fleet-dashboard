@@ -717,6 +717,22 @@ export interface ShopRow {
   machines: ShopMachine[]
 }
 
+/** The shop assistant's switches, as GET /fleet/assistant returns them. */
+export interface AssistantSwitches {
+  /** Fleet-wide master switch. Off overrides every shop. */
+  systemEnabled: boolean
+  systemChangedBy: string | null
+  systemChangedAt: string | null
+  /** Shops switched off one by one, newest first. */
+  blockedShops: Array<{
+    shopId: string
+    shopName: string
+    reason: string | null
+    disabledBy: string | null
+    disabledAt: string
+  }>
+}
+
 export interface ProvisionInput {
   shopName: string
   location?: string
@@ -990,6 +1006,12 @@ export interface Api {
    * password and grants no session — see stores.service.ts#issueReconnectCode.
    */
   issueReconnectCode(shopId: string): Promise<{ reconnectCode: string; expiresAt: string }>
+  /** The assistant's fleet-wide switch and every shop switched off on its own. */
+  assistantSwitches(): Promise<AssistantSwitches>
+  /** Fleet-wide on/off. Admin only. */
+  setSystemAssistant(enabled: boolean): Promise<AssistantSwitches>
+  /** One shop's on/off, with an optional reason kept on the console. Operator and up. */
+  setShopAssistant(shopId: string, enabled: boolean, reason?: string): Promise<void>
   revokeStoreKey(keyId: string): Promise<void>
   /**
    * Take a terminal off its shop for good: revokes the key AND stops the
@@ -1415,6 +1437,18 @@ export function createApi(
       post<{ reconnectCode: string; expiresAt: string }>(
         `/api/stores/${encodeURIComponent(shopId)}/reconnect-code`,
       ),
+
+    assistantSwitches: () => call<AssistantSwitches>('/fleet/assistant'),
+
+    setSystemAssistant: (enabled) =>
+      call<AssistantSwitches>('/fleet/assistant', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+
+    setShopAssistant: async (shopId, enabled, reason) => {
+      await call(shopPath(shopId, '/assistant'), {
+        method: 'PUT',
+        body: JSON.stringify({ enabled, ...(reason?.trim() ? { reason: reason.trim() } : {}) }),
+      })
+    },
 
     revokeStoreKey: async (keyId) => {
       await post(`/api/stores/keys/${encodeURIComponent(keyId)}/revoke`)

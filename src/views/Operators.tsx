@@ -3,6 +3,7 @@ import { Forbidden, Unauthorized, type Api, type CreateOperatorInput, type Opera
 import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
 import { exact, timeAgo } from '../lib/format.ts'
 import { AlertThresholds } from './AlertThresholds.tsx'
+import { AssistantSwitches } from './AssistantSwitches.tsx'
 import { MaintenanceWindows } from './MaintenanceWindows.tsx'
 import { NotifyRouting } from './NotifyRouting.tsx'
 import { DigestPanel, RuleSettings } from './RuleSettings.tsx'
@@ -143,6 +144,7 @@ export function Operators({ api, onUnauthorized }: { api: Api; onUnauthorized: (
         )}
       </section>
 
+      <AssistantSwitches api={api} onUnauthorized={onUnauthorized} />
       <AlertThresholds api={api} />
       <RuleSettings api={api} />
       {/* Detection is above; this is delivery. Two different questions —

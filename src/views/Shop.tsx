@@ -30,6 +30,7 @@ import { exact, timeAgo, timeUntil } from '../lib/format.ts'
 import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 import { ClaimPanel, type ClaimResult, type CodeKind } from './ClaimCode.tsx'
 import { ShopInventoryPanels } from './ShopInventory.tsx'
+import { ShopAssistantCard } from './ShopAssistantCard.tsx'
 
 export function Shop({
   api,
@@ -458,6 +459,8 @@ export function Shop({
                 </Button>
               </Card>
             )}
+
+            <ShopAssistantCard api={api} shopId={shop.id} onUnauthorized={onUnauthorized} />
 
             <Card title="Shop">
               <div className="card-status">
