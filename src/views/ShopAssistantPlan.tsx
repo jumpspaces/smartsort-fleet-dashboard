@@ -14,13 +14,13 @@ import { Card, KV, Notice } from '../components/ui.tsx'
 import { Sparkline } from '../components/Sparkline.tsx'
 import { compactCount, exact, timeAgo, timeUntil, usd } from '../lib/format.ts'
 import { PERIOD_OPTIONS } from './AssistantUsage.tsx'
-import { describeRule, LimitsEditor } from './LimitsEditor.tsx'
+import { describeRule, FEATURE_LABEL, LimitsEditor } from './LimitsEditor.tsx'
 
 const KIND_LABEL: Record<string, string> = {
-  chat: 'Questions',
-  briefing: 'Briefings',
+  ...FEATURE_LABEL,
   invoice: 'Invoices read',
   setup: 'Setup',
+  fleet: 'Fleet console',
 }
 
 const MODEL_LABEL: Record<string, string> = {

@@ -729,7 +729,19 @@ export interface AssistantModel {
 
 export type LimitMetric = 'requests' | 'spend' | 'tokens'
 export type LimitPeriod = 'hour' | 'day' | 'week' | 'month'
-export type LimitFeature = 'chat' | 'briefing' | 'invoice'
+export type LimitFeature =
+  | 'chat'
+  | 'briefing'
+  | 'invoice'
+  | 'insights'
+  | 'compare'
+  | 'reports'
+  | 'digests'
+  | 'watch'
+  | 'whatsapp'
+  | 'product_photo'
+  | 'catalogue'
+  | 'cash_helper'
 
 /**
  * "At most `value` <metric> per <period>", for one feature or (null) all of
@@ -817,6 +829,39 @@ export interface ShopAssistantDetail {
   }
 }
 
+/** The assistant's written brief — of the whole fleet, or of one shop before a call. */
+export interface AssistantBrief {
+  content: { headline: string; points: string[]; actions: string[] }
+  createdAt: string
+  cached: boolean
+}
+
+/** The WhatsApp Business account the assistant talks through. Secrets are never returned. */
+export interface WhatsAppSettings {
+  phoneNumberId: string | null
+  displayNumber: string | null
+  verifyToken: string | null
+  digestTemplate: string | null
+  orderTemplate: string | null
+  templateLanguage: string
+  hasAccessToken: boolean
+  hasAppSecret: boolean
+  configured: boolean
+  updatedBy: string | null
+  updatedAt: string | null
+}
+
+export interface WhatsAppPatch {
+  phoneNumberId?: string | null
+  displayNumber?: string | null
+  accessToken?: string
+  appSecret?: string
+  verifyToken?: string | null
+  digestTemplate?: string | null
+  orderTemplate?: string | null
+  templateLanguage?: string
+}
+
 /** The shop assistant's switches, as GET /fleet/assistant returns them. */
 export interface AssistantSwitches {
   /** Fleet-wide master switch. Off overrides every shop. */
@@ -843,7 +888,11 @@ export interface AssistantSwitches {
   /** The server's own per-shop hourly ceiling, under every configured limit. */
   serverHourlyLimit: number
   models: AssistantModel[]
-  /** Shops switched off one by one, newest first. */
+  /** Shops with AI, newest first. AI is opt-in: a new shop has none until turned on. */
+  enabledShops: Array<{ shopId: string; shopName: string; enabledBy: string | null; enabledAt: string }>
+  /** Shops never given AI. */
+  notEnabledCount: number
+  /** Shops switched off on purpose, newest first. */
   blockedShops: Array<{
     shopId: string
     shopName: string
@@ -1148,6 +1197,14 @@ export interface Api {
   setShopLimits(shopId: string, rules: LimitRule[]): Promise<void>
   /** One shop's on/off, with an optional reason kept on the console. Operator and up. */
   setShopAssistant(shopId: string, enabled: boolean, reason?: string): Promise<void>
+  /** The assistant's read of the whole fleet: what needs attention now. */
+  fleetHealthBrief(fresh?: boolean): Promise<AssistantBrief>
+  /** The assistant's brief on one shop, for whoever is about to call it. */
+  shopSupportBrief(shopId: string, fresh?: boolean): Promise<AssistantBrief>
+  /** The WhatsApp account settings (secrets never returned). */
+  whatsappSettings(): Promise<WhatsAppSettings>
+  /** Save WhatsApp settings. Admin only. */
+  setWhatsappSettings(patch: WhatsAppPatch): Promise<WhatsAppSettings>
   revokeStoreKey(keyId: string): Promise<void>
   /**
    * Take a terminal off its shop for good: revokes the key AND stops the
@@ -1609,6 +1666,16 @@ export function createApi(
         body: JSON.stringify({ enabled, ...(reason?.trim() ? { reason: reason.trim() } : {}) }),
       })
     },
+
+    fleetHealthBrief: (fresh = false) => call<AssistantBrief>(`/fleet/assistant/health-brief${fresh ? '?fresh=1' : ''}`, { method: 'POST' }),
+
+    shopSupportBrief: (shopId, fresh = false) =>
+      call<AssistantBrief>(shopPath(shopId, `/assistant/support-brief${fresh ? '?fresh=1' : ''}`), { method: 'POST' }),
+
+    whatsappSettings: async () => (await call<{ whatsapp: WhatsAppSettings }>('/fleet/assistant/whatsapp')).whatsapp,
+
+    setWhatsappSettings: async (patch) =>
+      (await call<{ whatsapp: WhatsAppSettings }>('/fleet/assistant/whatsapp', { method: 'PUT', body: JSON.stringify(patch) })).whatsapp,
 
     revokeStoreKey: async (keyId) => {
       await post(`/api/stores/keys/${encodeURIComponent(keyId)}/revoke`)

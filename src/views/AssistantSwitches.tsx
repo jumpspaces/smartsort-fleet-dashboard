@@ -124,10 +124,28 @@ export function AssistantSwitches({ api, onUnauthorized }: { api: Api; onUnautho
       </div>
 
       <div className="cmd-head" style={{ marginTop: 20, marginBottom: 6 }}>
-        <span className="strong">Switched off for one shop</span>
+        <span className="strong">Shops with AI ({data.enabledShops.length})</span>
+      </div>
+      <p className="hint" style={{ marginBottom: 8 }}>
+        AI is off for a shop until it’s turned on from the shop’s page — new shops start without it.
+        {data.notEnabledCount > 0 ? ` ${data.notEnabledCount} shop${data.notEnabledCount === 1 ? ' has' : 's have'} never had it turned on.` : ''}
+      </p>
+      {data.enabledShops.length > 0 && (
+        <p className="small" style={{ marginBottom: 12 }}>
+          {data.enabledShops.map((e, i) => (
+            <span key={e.shopId}>
+              {i > 0 && ', '}
+              <a href={buildHash({ view: 'shop', params: { id: e.shopId } })}>{e.shopName}</a>
+            </span>
+          ))}
+        </p>
+      )}
+
+      <div className="cmd-head" style={{ marginTop: 20, marginBottom: 6 }}>
+        <span className="strong">Switched off on purpose</span>
       </div>
       {data.blockedShops.length === 0 ? (
-        <p className="hint">No shop has its assistant switched off on its own. Use a shop’s page to switch one off.</p>
+        <p className="hint">No shop has had its AI switched off. Use a shop’s page to switch one off.</p>
       ) : (
         <div className="table-wrap">
           <table>

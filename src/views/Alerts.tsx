@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AssistantBriefCard } from './AssistantBriefCard.tsx'
 import type { AlertRow, Api, DeliveryRow, FleetConfigRow, RuleRow } from '../api.ts'
 import type { Navigate } from '../App.tsx'
 import type { Route } from '../lib/route.ts'
@@ -147,6 +148,10 @@ export function Alerts({
       </div>
 
       <WebhookHealth config={webhook} />
+
+      <div style={{ marginBottom: 16 }}>
+        <AssistantBriefCard api={api} />
+      </div>
 
       {error && <Notice>{error}</Notice>}
 
