@@ -742,6 +742,7 @@ export type LimitFeature =
   | 'product_photo'
   | 'catalogue'
   | 'cash_helper'
+  | 'staff'
 
 /**
  * "At most `value` <metric> per <period>", for one feature or (null) all of
