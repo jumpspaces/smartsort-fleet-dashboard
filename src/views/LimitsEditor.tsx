@@ -27,6 +27,12 @@ export const FEATURE_LABEL: Record<LimitFeature, string> = {
   catalogue: 'Catalogue tidy-up',
   cash_helper: 'Cash variance helper',
   staff: 'Staff reviews',
+  till_search: 'Till product search',
+  till_returns: 'Finding sales for returns',
+  till_handover: 'Handover notes',
+  till_help: 'Cashier help',
+  till_summary: 'Cashier shift summaries',
+  training: 'Cashier practice',
 }
 
 /** "20 requests per day", "$5.00 per month on invoices", "No limit on tokens per week". */

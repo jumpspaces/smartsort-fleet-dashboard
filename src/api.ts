@@ -743,6 +743,12 @@ export type LimitFeature =
   | 'catalogue'
   | 'cash_helper'
   | 'staff'
+  | 'till_search'
+  | 'till_returns'
+  | 'till_handover'
+  | 'till_help'
+  | 'till_summary'
+  | 'training'
 
 /**
  * "At most `value` <metric> per <period>", for one feature or (null) all of
