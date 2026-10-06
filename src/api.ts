@@ -916,6 +916,58 @@ export interface ProvisionInput {
   currency?: string
   ownerName: string
   staffId: string
+  /** Decides the setup questions and the starting features; the owner can't change it. */
+  businessType: BusinessType
+}
+
+/* ---- business editions: which major features a shop has ---- */
+
+/** Same keys as server/src/domain/features.ts. */
+export const BUSINESS_TYPES = [
+  'provisions',
+  'supermarket',
+  'pharmacy',
+  'beauty',
+  'electronics',
+  'hardware',
+  'fashion',
+  'other',
+] as const
+export type BusinessType = (typeof BUSINESS_TYPES)[number]
+
+export const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
+  provisions: 'Provisions & groceries',
+  supermarket: 'Supermarket or mini-mart',
+  pharmacy: 'Pharmacy or chemist',
+  beauty: 'Cosmetics & beauty',
+  electronics: 'Phones & electronics',
+  hardware: 'Hardware & building',
+  fashion: 'Fashion, clothing & shoes',
+  other: 'Other',
+}
+
+export interface EditionFeature {
+  key: string
+  label: string
+  description: string
+  /** False until the module ships; it can't be switched on. */
+  built: boolean
+  enabled: boolean
+  /** setup | jumpspaces | migration | legacy, or null if never set. */
+  source: string | null
+  reason: string | null
+  changedBy: string | null
+  changedAt: string | null
+  minAppVersion: string | null
+}
+
+export interface ShopEdition {
+  shopId: string
+  businessType: BusinessType | null
+  businessTypes: BusinessType[]
+  version: number
+  setupCompletedAt: string | null
+  features: EditionFeature[]
 }
 
 export interface ProvisionResult {
@@ -1204,6 +1256,11 @@ export interface Api {
   setShopLimits(shopId: string, rules: LimitRule[]): Promise<void>
   /** One shop's on/off, with an optional reason kept on the console. Operator and up. */
   setShopAssistant(shopId: string, enabled: boolean, reason?: string): Promise<void>
+  shopEdition(shopId: string): Promise<ShopEdition>
+  setShopEdition(
+    shopId: string,
+    change: { businessType?: BusinessType; features?: Record<string, boolean>; reason?: string },
+  ): Promise<ShopEdition>
   /** The assistant's read of the whole fleet: what needs attention now. */
   fleetHealthBrief(fresh?: boolean): Promise<AssistantBrief>
   /** The assistant's brief on one shop, for whoever is about to call it. */
@@ -1673,6 +1730,11 @@ export function createApi(
         body: JSON.stringify({ enabled, ...(reason?.trim() ? { reason: reason.trim() } : {}) }),
       })
     },
+
+    shopEdition: (shopId) => call<ShopEdition>(shopPath(shopId, '/edition')),
+
+    setShopEdition: (shopId, change) =>
+      call<ShopEdition>(shopPath(shopId, '/edition'), { method: 'PUT', body: JSON.stringify(change) }),
 
     fleetHealthBrief: (fresh = false) => call<AssistantBrief>(`/fleet/assistant/health-brief${fresh ? '?fresh=1' : ''}`, { method: 'POST' }),
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Unauthorized, type Api, type ShopRow } from '../api.ts'
+import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS, Unauthorized, type Api, type BusinessType, type ShopRow } from '../api.ts'
 import type { Navigate } from '../App.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { compare, PlainHeader, SortHeader, type Sort } from '../components/SortHeader.tsx'
@@ -308,15 +308,18 @@ function OnboardForm({
   const [phone, setPhone] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [staffId, setStaffId] = useState('owner')
+  const [businessType, setBusinessType] = useState<BusinessType | ''>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    if (!businessType) return setError('Pick the kind of business.')
     setBusy(true)
     setError(null)
     try {
       const r = await api.provisionShop({
+        businessType,
         shopName: shopName.trim(),
         location: location.trim() || undefined,
         phone: phone.trim() || undefined,
@@ -343,6 +346,25 @@ function OnboardForm({
           required
           autoFocus
         />
+      </label>
+      <label className="field">
+        <span>Kind of business</span>
+        <select
+          className="input"
+          value={businessType}
+          onChange={(e) => setBusinessType(e.target.value as BusinessType)}
+          required
+        >
+          <option value="" disabled>
+            Choose…
+          </option>
+          {BUSINESS_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {BUSINESS_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </select>
+        <span className="hint">Decides the owner’s setup questions and the features they start with. They can’t change it.</span>
       </label>
       <label className="field">
         <span>Location</span>
