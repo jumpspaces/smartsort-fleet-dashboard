@@ -931,6 +931,7 @@ export const BUSINESS_TYPES = [
   'electronics',
   'hardware',
   'fashion',
+  'repairs',
   'other',
 ] as const
 export type BusinessType = (typeof BUSINESS_TYPES)[number]
@@ -943,6 +944,7 @@ export const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   electronics: 'Phones & electronics',
   hardware: 'Hardware & building',
   fashion: 'Fashion, clothing & shoes',
+  repairs: 'Repairs & services',
   other: 'Other',
 }
 
