@@ -653,6 +653,7 @@ const TEMPLATES: Record<SheetKind, string[]> = {
     'Reorder Level',
     'Pack Name',
     'Units Per Pack',
+    'Sold By',
   ],
   batches: ['Product Name', 'Quantity Received', 'Batch Cost', 'Expiry Date', 'Supplier', 'Unit'],
 }
