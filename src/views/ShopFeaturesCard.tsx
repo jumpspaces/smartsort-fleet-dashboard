@@ -22,30 +22,41 @@ export function ShopFeaturesCard({
   api,
   shopId,
   onUnauthorized,
+  reloadKey = 0,
 }: {
   api: Api
   shopId: string
   onUnauthorized: () => void
+  /** Bumped by the shop page's Refresh: the card reloads with the rest. */
+  reloadKey?: number
 }) {
   const [edition, setEdition] = useState<ShopEdition | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  // A failed change, shown on the row it belongs to ('type' or a feature key):
+  // a refusal like "still in use" or "needs app 2.9.0" reads against its switch.
+  const [error, setError] = useState<{ key: string; message: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   // The feature being switched off, waiting on a reason.
   const [turningOff, setTurningOff] = useState<string | null>(null)
   const [reason, setReason] = useState('')
+  // A business type picked but not yet confirmed.
+  const [pendingType, setPendingType] = useState<BusinessType | null>(null)
+  // Viewers see the card but can't change anything; no switch that only ends in a 403.
+  const canEdit = api.operator?.role !== 'viewer'
 
   const load = useCallback(async () => {
+    setLoadError(null)
     try {
       setEdition(await api.shopEdition(shopId))
     } catch (err) {
       if (err instanceof Unauthorized) return onUnauthorized()
-      setError(err instanceof Error ? err.message : 'Could not load this shop’s features')
+      setLoadError(err instanceof Error ? err.message : 'Could not load this shop’s features')
     }
   }, [api, shopId, onUnauthorized])
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, reloadKey])
 
   async function save(key: string, change: Parameters<Api['setShopEdition']>[1]) {
     setBusy(key)
@@ -54,27 +65,42 @@ export function ShopFeaturesCard({
       setEdition(await api.setShopEdition(shopId, change))
       setTurningOff(null)
       setReason('')
+      setPendingType(null)
     } catch (err) {
       if (err instanceof Unauthorized) return onUnauthorized()
-      setError(err instanceof Forbidden ? 'Viewers can’t change this.' : err instanceof Error ? err.message : 'Could not save')
+      setError({
+        key,
+        message: err instanceof Forbidden ? 'Viewers can’t change this.' : err instanceof Error ? err.message : 'Could not save',
+      })
     } finally {
       setBusy(null)
     }
   }
 
-  if (!edition) return error ? <Card title="Features"><Notice>{error}</Notice></Card> : null
+  const rowError = (key: string) => (error?.key === key ? <Notice>{error.message}</Notice> : null)
+
+  if (!edition) {
+    return loadError ? (
+      <Card title="Features">
+        <Notice>{loadError}</Notice>
+        <Button variant="ghost" onClick={() => void load()}>
+          Try again
+        </Button>
+      </Card>
+    ) : null
+  }
 
   return (
     <Card title="Features">
-      {error && <Notice>{error}</Notice>}
+      {!canEdit && <p className="hint">You can see this shop’s features. Only operators can change them.</p>}
 
       <label className="field" style={{ marginBottom: 12 }}>
         <span>Business type</span>
         <select
           className="input"
-          value={edition.businessType ?? ''}
-          disabled={busy !== null}
-          onChange={(e) => void save('type', { businessType: e.target.value as BusinessType })}
+          value={pendingType ?? edition.businessType ?? ''}
+          disabled={busy !== null || !canEdit}
+          onChange={(e) => setPendingType(e.target.value as BusinessType)}
         >
           {!edition.businessType && <option value="">Not set (shop from before editions)</option>}
           {edition.businessTypes.map((t) => (
@@ -89,6 +115,23 @@ export function ShopFeaturesCard({
             : 'Decides which setup questions the owner is asked when they connect their first till.'}
         </span>
       </label>
+      {pendingType && pendingType !== edition.businessType && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+          <span className="hint">Change the type to {BUSINESS_TYPE_LABELS[pendingType]}?</span>
+          <Button
+            variant="primary"
+            busy={busy === 'type'}
+            busyLabel="Saving…"
+            onClick={() => void save('type', { businessType: pendingType })}
+          >
+            Change type
+          </Button>
+          <Button variant="ghost" disabled={busy !== null} onClick={() => setPendingType(null)}>
+            Cancel
+          </Button>
+        </div>
+      )}
+      {rowError('type')}
 
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {edition.features.map((f) => (
@@ -100,7 +143,7 @@ export function ShopFeaturesCard({
                 <div className="hint">{f.description}</div>
                 <Provenance f={f} />
               </div>
-              {f.built && turningOff !== f.key && (
+              {canEdit && f.built && turningOff !== f.key && (
                 <Button
                   variant={f.enabled ? 'ghost' : 'primary'}
                   busy={busy === f.key}
@@ -112,6 +155,7 @@ export function ShopFeaturesCard({
                 </Button>
               )}
             </div>
+            {rowError(f.key)}
 
             {turningOff === f.key && (
               <div style={{ marginTop: 8 }}>

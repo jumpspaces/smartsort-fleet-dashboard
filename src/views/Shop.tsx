@@ -463,7 +463,7 @@ export function Shop({
               </Card>
             )}
 
-            <ShopFeaturesCard api={api} shopId={shop.id} onUnauthorized={onUnauthorized} />
+            <ShopFeaturesCard api={api} shopId={shop.id} onUnauthorized={onUnauthorized} reloadKey={reloadKey} />
             <ShopAssistantCard api={api} shopId={shop.id} onUnauthorized={onUnauthorized} />
             <AssistantBriefCard api={api} shopId={shop.id} onUnauthorized={onUnauthorized} />
             <ShopAssistantPlan api={api} shopId={shop.id} onUnauthorized={onUnauthorized} />
