@@ -64,7 +64,7 @@ export function Backups({
         <div>
           <h1 className="view-title">Backups</h1>
           <p className="view-sub">
-            Every terminal that keeps its own database, and when it last took a copy of itself.
+            When each till last saved a copy of its data.
           </p>
         </div>
       </div>

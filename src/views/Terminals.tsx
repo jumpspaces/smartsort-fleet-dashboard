@@ -207,9 +207,9 @@ export function Terminals({
     <>
       <div className="view-head">
         <div>
-          <h1 className="view-title">Terminals</h1>
+          <h1 className="view-title">Tills</h1>
           <p className="view-sub">
-            Every install that has reported in. Each one checks in about every three minutes.
+            Every computer running SmartSort. Each one checks in every few minutes.
           </p>
         </div>
       </div>

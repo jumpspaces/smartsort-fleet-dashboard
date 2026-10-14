@@ -46,10 +46,9 @@ export function Quality({
     <>
       <div className="view-head">
         <div>
-          <h1 className="view-title">Books & queues</h1>
+          <h1 className="view-title">Records check</h1>
           <p className="view-sub">
-            Shops whose figures have stopped adding up, and the terminals carrying the sync backlog.
-            Neither shows as an unhealthy till.
+            Shops whose numbers don’t add up, and tills with sales still waiting to go up to the cloud.
           </p>
         </div>
       </div>

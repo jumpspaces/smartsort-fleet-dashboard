@@ -9,6 +9,7 @@ import { Icon, type IconName } from './components/Icon.tsx'
 import { Mark } from './components/Mark.tsx'
 import { Button } from './components/ui.tsx'
 import { duration, hostOf } from './lib/format.ts'
+import { pageName } from './lib/plain.ts'
 import { PARENT, useRoute, type View } from './lib/route.ts'
 import { useDensity } from './lib/density.ts'
 import { useTheme, type ThemePref } from './lib/theme.ts'
@@ -277,9 +278,10 @@ interface NavItem {
 }
 
 /**
- * Eleven flat destinations had become a list to read rather than a place to
- * look. Grouped by the question being asked: what is wrong now, what does the
- * fleet look like, what are we shipping to it, and who did what.
+ * Five places cover a normal day: is anything wrong, which shop, what alerts
+ * fired, what version the tills are on, who can sign in. Everything else is
+ * real but occasional, so it sits under "More" — still one click away, not
+ * eleven equal choices for someone who just wants to know if the shops are up.
  */
 function navGroups(overview: Overview | null, role: Session['operator']['role']): {
   label: string | null
@@ -287,40 +289,65 @@ function navGroups(overview: Overview | null, role: Session['operator']['role'])
 }[] {
   const alerts = overview?.openAlerts ?? null
   const errors = overview?.openErrorGroups ?? null
+  const item = (id: View, icon: IconName, extra: Partial<NavItem> = {}): NavItem => ({
+    id,
+    label: pageName(id),
+    icon,
+    ...extra,
+  })
   return [
     {
       label: null,
       items: [
-        { id: 'triage', label: 'Triage', icon: 'inbox' },
-        { id: 'alerts', label: 'Alerts', icon: 'bell', count: alerts, urgent: (alerts ?? 0) > 0 },
-        { id: 'errors', label: 'Errors', icon: 'bug', count: errors, urgent: (errors ?? 0) > 0 },
+        item('triage', 'inbox'),
+        item('shops', 'shops'),
+        item('alerts', 'bell', { count: alerts, urgent: (alerts ?? 0) > 0 }),
+        item('rollouts', 'rocket'),
+        ...(role === 'admin' ? [item('operators', 'users')] : []),
       ],
     },
     {
-      label: 'Fleet',
+      label: 'More',
       items: [
-        { id: 'terminals', label: 'Terminals', icon: 'terminals', count: overview?.counts.all ?? null },
-        { id: 'shops', label: 'Shops', icon: 'shops' },
-        { id: 'backups', label: 'Backups', icon: 'shield' },
-        { id: 'quality', label: 'Books', icon: 'note' },
-        { id: 'trends', label: 'Trends', icon: 'trend' },
-      ],
-    },
-    {
-      label: 'Ship',
-      items: [
-        { id: 'rollouts', label: 'Rollouts', icon: 'rocket' },
-        { id: 'commands', label: 'Commands', icon: 'prompt' },
-      ],
-    },
-    {
-      label: 'Admin',
-      items: [
-        { id: 'audit', label: 'Audit', icon: 'list' },
-        ...(role === 'admin' ? [{ id: 'operators' as const, label: 'Settings', icon: 'users' as const }] : []),
+        item('terminals', 'terminals', { count: overview?.counts.all ?? null }),
+        item('errors', 'bug', { count: errors }),
+        item('backups', 'shield'),
+        item('quality', 'note'),
+        item('trends', 'trend'),
+        item('commands', 'prompt'),
+        item('audit', 'list'),
       ],
     },
   ]
+}
+
+const ROLE_LABEL: Record<Session['operator']['role'], string> = {
+  admin: 'Admin',
+  operator: 'Support',
+  viewer: 'Can view only',
+}
+
+const LS_MORE = 'fleet_nav_more'
+
+/** Whether "More" is unfolded — a per-person convenience, so browser storage. */
+function useMoreOpen(): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(LS_MORE) === '1'
+    } catch {
+      return false
+    }
+  })
+  const set = useCallback((next: boolean) => {
+    setOpen(next)
+    try {
+      if (next) localStorage.setItem(LS_MORE, '1')
+      else localStorage.removeItem(LS_MORE)
+    } catch {
+      /* private window: it just will not be remembered */
+    }
+  }, [])
+  return [open, set]
 }
 
 function Sidebar({
@@ -340,34 +367,52 @@ function Sidebar({
 }) {
   const [theme, setTheme] = useTheme()
   const [density, setDensity] = useDensity()
+  const [moreOpen, setMoreOpen] = useMoreOpen()
+  const groups = navGroups(overview, operator.role)
 
   return (
     <header className="sidebar">
       <Mark />
 
       <nav className="nav" aria-label="Sections">
-        {navGroups(overview, operator.role).map((group, gi) => (
-          <div className="nav-group" key={group.label ?? gi}>
-            {group.label && <span className="nav-label">{group.label}</span>}
-            {group.items.map((it) => (
-              <button
-                key={it.id}
-                type="button"
-                className="nav-item"
-                aria-current={view === it.id ? 'page' : undefined}
-                onClick={() => onView(it.id)}
-              >
-                <Icon name={it.icon} />
-                {it.label}
-                {it.count != null && it.count > 0 && (
-                  <span className="nav-count" data-urgent={it.urgent || undefined}>
-                    {it.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        ))}
+        {groups.map((group, gi) => {
+          const folded = group.label === 'More' && !moreOpen && !group.items.some((it) => it.id === view)
+          return (
+            <div className="nav-group" key={group.label ?? gi}>
+              {group.label === 'More' ? (
+                <button
+                  type="button"
+                  className="nav-more"
+                  aria-expanded={!folded}
+                  onClick={() => setMoreOpen(folded)}
+                >
+                  More
+                  <Icon name="chevron" size={12} />
+                </button>
+              ) : (
+                group.label && <span className="nav-label">{group.label}</span>
+              )}
+              {!folded &&
+                group.items.map((it) => (
+                  <button
+                    key={it.id}
+                    type="button"
+                    className="nav-item"
+                    aria-current={view === it.id ? 'page' : undefined}
+                    onClick={() => onView(it.id)}
+                  >
+                    <Icon name={it.icon} />
+                    {it.label}
+                    {it.count != null && it.count > 0 && (
+                      <span className="nav-count" data-urgent={it.urgent || undefined}>
+                        {it.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+            </div>
+          )
+        })}
       </nav>
 
       <div className="sidebar-foot">
@@ -376,8 +421,8 @@ function Sidebar({
             <span className="conn-who" title={`${operator.name} · ${operator.role}`}>
               {operator.name}
             </span>
-            <span className="conn-host" title={apiBase}>
-              {operator.role} · {hostOf(apiBase)}
+            <span className="conn-host" title={`${operator.role} · ${hostOf(apiBase)}`}>
+              {ROLE_LABEL[operator.role]}
             </span>
           </div>
           <Button variant="ghost" size="sm" onClick={onSignOut}>
@@ -432,32 +477,36 @@ function StatusBar({
 
   return (
     <div className="statusbar">
-      <div className="pulse" aria-label="Fleet state">
+      <div className="pulse" aria-label="Tills right now">
         {c ? (
           <>
             <button type="button" className="pulse-item" onClick={() => onNavigate('terminals', { state: 'healthy' })}>
-              <span className="tile tile-key" data-state="healthy" aria-hidden="true" />
-              <b className="num">{c.healthy}</b> healthy
+              <span className="dot" data-tone="ok" aria-hidden="true" />
+              <b className="num">{c.healthy}</b> fine
             </button>
-            <button
-              type="button"
-              className="pulse-item"
-              data-hot={c.attention > 0 || undefined}
-              onClick={() => onNavigate('terminals', { state: 'attention' })}
-            >
-              <span className="tile tile-key" data-state="attention" aria-hidden="true" />
-              <b className="num">{c.attention}</b> attention
-            </button>
-            <button
-              type="button"
-              className="pulse-item"
-              data-hot={c.offline > 0 || undefined}
-              data-tone="bad"
-              onClick={() => onNavigate('terminals', { state: 'offline' })}
-            >
-              <span className="tile tile-key" data-state="offline" aria-hidden="true" />
-              <b className="num">{c.offline}</b> offline
-            </button>
+            {c.attention > 0 && (
+              <button
+                type="button"
+                className="pulse-item"
+                data-hot="true"
+                onClick={() => onNavigate('terminals', { state: 'attention' })}
+              >
+                <span className="dot" data-tone="warn" aria-hidden="true" />
+                <b className="num">{c.attention}</b> need{c.attention === 1 ? 's' : ''} a look
+              </button>
+            )}
+            {c.offline > 0 && (
+              <button
+                type="button"
+                className="pulse-item"
+                data-hot="true"
+                data-tone="bad"
+                onClick={() => onNavigate('terminals', { state: 'offline' })}
+              >
+                <span className="dot" data-tone="bad" aria-hidden="true" />
+                <b className="num">{c.offline}</b> not connected
+              </button>
+            )}
           </>
         ) : (
           <span className="skeleton" style={{ width: 240, height: 14 }} aria-hidden="true" />
@@ -466,14 +515,14 @@ function StatusBar({
 
       <button type="button" className="omnibox" onClick={onSearch}>
         <Icon name="search" size={14} />
-        <span>Find a terminal, shop or page</span>
+        <span>Search shops and tills</span>
         <kbd>⌘K</kbd>
       </button>
 
       <div className="statusbar-end">
         <span className="conn-live" title={updatedAt ? new Date(updatedAt).toLocaleTimeString() : undefined}>
           <span className="dot dot-live" data-stale={stale || undefined} aria-hidden="true" />
-          {age == null ? 'Connecting…' : stale ? `Last update ${duration(age)} ago` : 'Live'}
+          {age == null ? 'Connecting…' : stale ? `Updated ${duration(age)} ago` : 'Up to date'}
         </span>
         <Button
           variant="ghost"

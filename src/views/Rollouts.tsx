@@ -96,10 +96,9 @@ export function Rollouts({
     <>
       <div className="view-head">
         <div>
-          <h1 className="view-title">Rollouts</h1>
+          <h1 className="view-title">Updates</h1>
           <p className="view-sub">
-            A build goes to a few terminals first. If those stay quiet it goes to the rest; if they
-            do not, it stops itself and says so.
+            New versions of SmartSort go to a few tills first. If those are fine, the rest get it; if not, it stops by itself.
           </p>
         </div>
       </div>

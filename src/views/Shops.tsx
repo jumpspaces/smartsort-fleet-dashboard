@@ -96,8 +96,7 @@ export function Shops({
         <div>
           <h1 className="view-title">Shops</h1>
           <p className="view-sub">
-            Onboarding mints a one-time claim code. The shop redeems it on their desktop and the
-            owner sets their own password there — no live credential is ever known here.
+            Every shop using SmartSort. To add one, create it here and give the owner the code it shows — they finish setting up on their own computer.
           </p>
         </div>
         <Button variant="primary" onClick={() => setFormOpen((v) => !v)} aria-expanded={formOpen}>

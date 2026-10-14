@@ -87,10 +87,9 @@ export function Trends({
     <>
       <div className="view-head">
         <div>
-          <h1 className="view-title">Trends</h1>
+          <h1 className="view-title">History</h1>
           <p className="view-sub">
-            What the fleet has done, day by day, and whether that clears the promise we make about
-            it.
+            How the tills have done day by day — connected, syncing and selling.
           </p>
         </div>
         <div className="head-actions">

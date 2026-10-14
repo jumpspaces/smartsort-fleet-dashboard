@@ -10,10 +10,10 @@ import { useEffect } from 'react'
 import { Icon } from './Icon.tsx'
 
 const KEYS: { keys: string[]; what: string }[] = [
-  { keys: ['⌘', 'K'], what: 'Go to a terminal, a shop, or any section' },
+  { keys: ['⌘', 'K'], what: 'Search for a shop, a till or a page' },
   { keys: ['/'], what: 'Jump to the search box on a list' },
-  { keys: ['j', 'k'], what: 'Move through the triage queue' },
-  { keys: ['a'], what: 'Acknowledge the selected alert on Triage' },
+  { keys: ['j', 'k'], what: 'Move up and down the list on Home' },
+  { keys: ['a'], what: 'Mark the selected problem as “I’m on it”' },
   { keys: ['?'], what: 'This list' },
   { keys: ['Esc'], what: 'Close whatever is open; clear the search box' },
   { keys: ['↑', '↓'], what: 'Move through results in the palette' },
