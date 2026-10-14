@@ -61,7 +61,7 @@ export function Operators({ api, onUnauthorized }: { api: Api; onUnauthorized: (
       <>
         <div className="view-head">
           <div>
-            <h1 className="view-title">Operators</h1>
+            <h1 className="view-title">Settings</h1>
           </div>
         </div>
         <Notice>Your role can't manage operator accounts — ask an admin.</Notice>
@@ -73,10 +73,9 @@ export function Operators({ api, onUnauthorized }: { api: Api; onUnauthorized: (
     <>
       <div className="view-head">
         <div>
-          <h1 className="view-title">Operators</h1>
+          <h1 className="view-title">Settings</h1>
           <p className="view-sub">
-            Named accounts with access to this console. Disabling one signs it out of every
-            session immediately; resetting a password does the same.
+            People who can sign in here. Switching someone off, or resetting their password, signs them out straight away.
           </p>
         </div>
         <Button size="sm" onClick={() => setCreating((v) => !v)}>

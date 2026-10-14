@@ -57,10 +57,9 @@ export function Audit({ api, onUnauthorized }: { api: Api; onUnauthorized: () =>
     <>
       <div className="view-head">
         <div>
-          <h1 className="view-title">Audit</h1>
+          <h1 className="view-title">Activity log</h1>
           <p className="view-sub">
-            Every mutating action taken through this console, append-only: who did what, when,
-            and from where.
+            Everything anyone changed from this console: who, what and when.
           </p>
         </div>
       </div>

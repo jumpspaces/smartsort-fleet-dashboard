@@ -118,10 +118,9 @@ export function Errors({
     <>
       <div className="view-head">
         <div>
-          <h1 className="view-title">Errors</h1>
+          <h1 className="view-title">App problems</h1>
           <p className="view-sub">
-            One row per distinct fault across the whole fleet. Resolving one records the build that
-            fixed it and stops it counting against terminal health.
+            Things that went wrong inside the SmartSort app on the tills. These are for developers; mark one fixed once a new version has dealt with it.
           </p>
         </div>
       </div>

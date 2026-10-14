@@ -134,9 +134,7 @@ export function Alerts({
         <div>
           <h1 className="view-title">Alerts</h1>
           <p className="view-sub">
-            Conditions the server noticed on its own and pushed out. One alert per condition per
-            terminal, notified once when it opens and once when it clears. Re-evaluated every
-            minute on its own.
+            Problems the system spotted by itself and sent out a message about. Each one closes on its own once the problem is gone.
           </p>
         </div>
         {api.operator.role !== 'viewer' && (

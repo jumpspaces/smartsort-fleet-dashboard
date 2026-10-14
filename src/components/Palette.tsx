@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Api } from '../api.ts'
+import { pageName } from '../lib/plain.ts'
 import type { View } from '../lib/route.ts'
 import { Icon, type IconName } from './Icon.tsx'
 
@@ -27,18 +28,18 @@ export interface PaletteAction {
   run: () => void
 }
 
-const SECTIONS: { view: View; label: string; icon: IconName }[] = [
-  { view: 'triage', label: 'Triage', icon: 'inbox' },
-  { view: 'terminals', label: 'Terminals', icon: 'terminals' },
-  { view: 'alerts', label: 'Alerts', icon: 'bell' },
-  { view: 'errors', label: 'Errors', icon: 'bug' },
-  { view: 'shops', label: 'Shops', icon: 'shops' },
-  { view: 'rollouts', label: 'Rollouts', icon: 'rocket' },
-  { view: 'trends', label: 'Trends', icon: 'trend' },
-  { view: 'backups', label: 'Backups', icon: 'shield' },
-  { view: 'quality', label: 'Books & queues', icon: 'shops' },
-  { view: 'commands', label: 'Commands', icon: 'prompt' },
-  { view: 'audit', label: 'Audit', icon: 'list' },
+const SECTIONS: { view: View; icon: IconName }[] = [
+  { view: 'triage', icon: 'inbox' },
+  { view: 'shops', icon: 'shops' },
+  { view: 'terminals', icon: 'terminals' },
+  { view: 'alerts', icon: 'bell' },
+  { view: 'errors', icon: 'bug' },
+  { view: 'rollouts', icon: 'rocket' },
+  { view: 'trends', icon: 'trend' },
+  { view: 'backups', icon: 'shield' },
+  { view: 'quality', icon: 'note' },
+  { view: 'commands', icon: 'prompt' },
+  { view: 'audit', icon: 'list' },
 ]
 
 export function Palette({
@@ -70,7 +71,7 @@ export function Palette({
       SECTIONS.map((s) => ({
         id: `view:${s.view}`,
         group: 'Go to' as const,
-        label: s.label,
+        label: pageName(s.view),
         icon: s.icon,
         run: () => go(s.view),
       })),
@@ -175,7 +176,7 @@ export function Palette({
           ref={inputRef}
           className="palette-input"
           value={query}
-          placeholder="Search terminals, shops and sections…"
+          placeholder="Search shops, tills and pages…"
           aria-label="Search"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {

@@ -77,10 +77,9 @@ export function Commands({
     <>
       <div className="view-head">
         <div>
-          <h1 className="view-title">Commands</h1>
+          <h1 className="view-title">Remote fixes</h1>
           <p className="view-sub">
-            Every remote action issued fleet-wide, across every terminal — the same commands
-            the device drawer issues, all in one place.
+            Fixes sent to tills from here — like restarting the app — and whether each one worked.
           </p>
         </div>
       </div>

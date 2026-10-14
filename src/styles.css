@@ -476,6 +476,31 @@ body {
   font-weight: 600;
   color: var(--ink-muted);
 }
+.nav-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.nav-more:hover {
+  color: var(--ink);
+}
+.nav-more svg {
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nav-more[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
 .nav-item {
   display: flex;
   align-items: center;
@@ -1527,6 +1552,10 @@ tbody tr[data-clickable='true']:hover .chev {
   .nav-label {
     display: none;
   }
+  .nav-more {
+    width: auto;
+    white-space: nowrap;
+  }
   .view {
     padding: 18px 16px 44px;
   }
@@ -2474,8 +2503,7 @@ select.input {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.omnibox kbd,
-.triage-keys kbd {
+.omnibox kbd {
   padding: 1px 5px;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
@@ -2492,65 +2520,7 @@ select.input {
 }
 
 /* =============================================================================
-   tiles — one terminal, one square
-
-   The same shape grammar as the status dot, squared so a few hundred of them
-   pack into a wall: filled = healthy, ring = attention, slashed outline =
-   offline. Hue only reinforces.
-   ============================================================================= */
-
-.tile {
-  --tile: 14px;
-  display: inline-block;
-  flex: none;
-  width: var(--tile);
-  height: var(--tile);
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: var(--ok-mark);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
-}
-.tile[data-state='attention'] {
-  background: transparent;
-  box-shadow: inset 0 0 0 3px var(--warn-mark);
-}
-.tile[data-state='offline'] {
-  background:
-    linear-gradient(
-      to top right,
-      transparent calc(50% - 1px),
-      var(--bad-mark) calc(50% - 1px),
-      var(--bad-mark) calc(50% + 1px),
-      transparent calc(50% + 1px)
-    );
-  box-shadow: inset 0 0 0 2px var(--bad-mark);
-}
-.tile[data-muted='true'] {
-  opacity: 0.35;
-}
-button.tile:hover {
-  transform: scale(1.25);
-}
-button.tile:focus-visible {
-  outline-offset: 1px;
-  border-radius: 3px;
-}
-.tile-key {
-  --tile: 10px;
-  border-radius: 2.5px;
-  cursor: inherit;
-}
-.tile-key[data-state='attention'] {
-  box-shadow: inset 0 0 0 2px var(--warn-mark);
-}
-.tile-key[data-state='offline'] {
-  box-shadow: inset 0 0 0 1.5px var(--bad-mark);
-}
-
-/* =============================================================================
-   triage — queue + wall on the left, vitals on the right
+   home — the list and the shops on the left, figures on the right
    ============================================================================= */
 
 .triage-layout {
@@ -2569,19 +2539,6 @@ button.tile:focus-visible {
 .triage-side {
   position: sticky;
   top: calc(var(--statusbar-h) + 20px);
-}
-.triage-keys {
-  display: flex;
-  align-items: center;
-  padding-top: 8px;
-  font-size: var(--t-xs);
-  color: var(--ink-muted);
-}
-.triage-keys span {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: 10px;
 }
 .queue {
   display: flex;
@@ -2620,14 +2577,15 @@ button.tile:focus-visible {
   overflow: hidden;
 }
 
-/* One row: severity mark, what + where, when, action. */
+/* One row: mark, then three lines — the problem, where, what to do — then
+   when and the one action. Roomy on purpose: it is read, not scanned. */
 .qi {
   position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px 10px 14px;
+  align-items: start;
+  gap: 14px;
+  padding: 14px 16px;
   border-top: 1px solid var(--line);
   transition: background-color var(--dur-fast) var(--ease);
 }
@@ -2645,17 +2603,17 @@ button.tile:focus-visible {
   background: var(--surface);
 }
 
-/* The mark is the severity: a filled red square for critical, an amber ring
-   for warning — the same shapes as the tiles, so one vocabulary. */
+/* Urgent is a filled red disc, everything else an amber ring — the same
+   filled-versus-ring grammar as the status dots, so colour is never alone. */
 .qi-mark {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--r-sm);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   color: var(--warn);
   background: var(--warn-bg);
-  box-shadow: inset 0 0 0 1px var(--warn-line);
+  box-shadow: inset 0 0 0 1.5px var(--warn-line);
 }
 .qi[data-severity='critical'] .qi-mark {
   color: var(--ink-inverse);
@@ -2671,7 +2629,7 @@ button.tile:focus-visible {
 .qi-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -2695,40 +2653,32 @@ button.tile:focus-visible {
   outline-offset: -2px;
 }
 .qi-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--t-md);
   font-weight: 600;
+  line-height: 1.3;
   color: var(--ink);
+  text-wrap: pretty;
 }
 .qi[data-acknowledged] .qi-title {
   font-weight: 500;
 }
-.qi-meta {
-  display: flex;
-  gap: 8px;
-  min-width: 0;
-  font-size: var(--t-sm);
-  color: var(--ink-muted);
-}
-.qi-where,
-.qi-detail {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .qi-where {
+  font-size: var(--t-sm);
+  font-weight: 500;
   color: var(--ink);
 }
-.qi-detail::before {
-  content: '·';
-  margin-right: 8px;
-  color: var(--ink-faint);
+.qi-hint {
+  max-width: 68ch;
+  font-size: var(--t-sm);
+  line-height: 1.45;
+  color: var(--ink-muted);
+  text-wrap: pretty;
 }
-.qi-where:empty + .qi-detail::before {
-  content: none;
+.qi[data-acknowledged] .qi-hint {
+  display: none;
 }
 .qi-when {
+  padding-top: 3px;
   font-size: var(--t-sm);
   color: var(--ink-muted);
   white-space: nowrap;
@@ -2739,9 +2689,10 @@ button.tile:focus-visible {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  min-width: 104px;
+  min-width: 96px;
 }
 .qi-who {
+  padding-top: 3px;
   font-size: var(--t-sm);
   color: var(--ink-muted);
   white-space: nowrap;
@@ -2799,59 +2750,53 @@ button.tile:focus-visible {
   margin-bottom: 2px;
 }
 
-/* -- wall ----------------------------------------------------------------- */
+/* -- shops ---------------------------------------------------------------- */
 
-.wall {
+.shop-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.shop-list li + li {
+  border-top: 1px solid var(--line);
+}
+.shop-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 16px 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 11px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
 }
-.wall-shop {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  min-width: 0;
+.shop-row:hover {
+  background: var(--surface-2);
 }
-.wall-shop-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: var(--t-sm);
-}
-.wall-shop-name {
-  flex: 1;
-  min-width: 0;
+.shop-row-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--ink);
-}
-.wall-shop[data-worst='healthy'] .wall-shop-name {
-  color: var(--ink-muted);
-}
-.wall-shop-count {
-  font-size: var(--t-xs);
-  color: var(--ink-muted);
-}
-.wall-shop[data-worst='offline'] .wall-shop-count {
-  color: var(--bad);
   font-weight: 600;
 }
-.wall-shop[data-worst='attention'] .wall-shop-count {
-  color: var(--warn);
-  font-weight: 600;
+.shop-row-line {
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
 }
-.wall-tiles {
+.shop-list-foot {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--line);
 }
-.wall-legend {
-  display: flex;
-  gap: 2px;
-  flex-wrap: wrap;
-}
-.wall-skeleton {
+.shop-list-skeleton {
   height: 120px;
   border-radius: var(--r-md);
 }
@@ -2926,9 +2871,6 @@ button.tile:focus-visible {
     width: auto;
     margin-left: 0;
   }
-  .triage-keys {
-    display: none;
-  }
   .qi {
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: 'mark body actions' 'mark when actions';
@@ -2941,21 +2883,26 @@ button.tile:focus-visible {
   .qi-body {
     grid-area: body;
   }
-  .qi-title {
-    white-space: normal;
-  }
   .qi-when {
     grid-area: when;
+    padding-top: 0;
     font-size: var(--t-xs);
   }
   .qi-actions {
     grid-area: actions;
     min-width: 0;
   }
+  .shop-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  .shop-row-line {
+    grid-row: 2;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  button.tile:hover {
-    transform: none;
+  .nav-more svg {
+    transition: none;
   }
 }
