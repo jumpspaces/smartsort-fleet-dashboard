@@ -12,6 +12,8 @@ import { Icon } from './Icon.tsx'
 const KEYS: { keys: string[]; what: string }[] = [
   { keys: ['⌘', 'K'], what: 'Go to a terminal, a shop, or any section' },
   { keys: ['/'], what: 'Jump to the search box on a list' },
+  { keys: ['j', 'k'], what: 'Move through the triage queue' },
+  { keys: ['a'], what: 'Acknowledge the selected alert on Triage' },
   { keys: ['?'], what: 'This list' },
   { keys: ['Esc'], what: 'Close whatever is open; clear the search box' },
   { keys: ['↑', '↓'], what: 'Move through results in the palette' },

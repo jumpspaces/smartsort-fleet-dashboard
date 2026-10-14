@@ -1,4 +1,4 @@
-import type { AlertRow, FleetState, GroupStatus, HealthReason } from '../api.ts'
+import type { AlertRow, DeviceRow, FleetState, GroupStatus, HealthReason } from '../api.ts'
 import type { Tone } from '../components/ui.tsx'
 
 /**
@@ -73,6 +73,23 @@ export const RULE_LABEL: Record<string, string> = {
   'errors.new_group': 'New error in the field',
   'sales.flatline': 'No sales today',
   'device.key_rejected': 'Claimed till reporting without its key',
+  'shop.offline': 'Whole shop offline',
+  'sync.pull_stale': 'Not receiving sync',
+  'sync.pull_quarantined': 'Incoming rows rejected',
+  'disk.low': 'Disk filling',
+  'backup.stale': 'Backups not running',
+  'clock.skew': 'Clock wrong',
+  'assistant.account': 'Shop assistant down',
+  'assistant.limit_reached': 'Shop at an AI limit',
+  'rollout.halted': 'Rollout halted itself',
 }
 
 export const ruleLabel = (key: string): string => RULE_LABEL[key] ?? key
+
+/**
+ * How a terminal is named in a sentence: the operator's name for the machine,
+ * else its till code, else the start of its device ID — never blank.
+ */
+export function terminalName(d: Pick<DeviceRow, 'machineName' | 'terminalCode' | 'deviceId'>): string {
+  return d.machineName ?? d.terminalCode ?? d.deviceId.slice(0, 12)
+}
