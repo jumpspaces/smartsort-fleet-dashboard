@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon.tsx'
 import { PlainHeader, SortHeader, type Sort } from '../components/SortHeader.tsx'
 import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../components/ui.tsx'
 import { downloadCsv, toCsv } from '../lib/csv.ts'
-import { bytes, cedis, duration, exact, timeAgo, timeUntil } from '../lib/format.ts'
+import { bytes, cedis, exact, timeAgo, timeUntil } from '../lib/format.ts'
 import { primaryReason, STATE_LABEL, TONE } from '../lib/state.ts'
 import { useDebounced } from '../lib/useDebounced.ts'
 import { useHotkey } from '../lib/useHotkey.ts'
@@ -215,8 +215,6 @@ export function Terminals({
       </div>
 
       {error && <Notice>{error}</Notice>}
-
-      {overview && <Kpis overview={overview} apiBase={api.apiBase} />}
 
       <section className="panel">
         <Gauge counts={counts} loading={rows == null} />
@@ -559,94 +557,6 @@ export function Terminals({
 
 /* ---------------------------------------------------------------------- kpis */
 
-/**
- * The numbers a snapshot table cannot show: how available the fleet has BEEN,
- * how far behind the slowest queues are, and how far the current build has
- * spread. All three come from history, which is why they could not exist before.
- */
-function Kpis({ overview, apiBase }: { overview: Overview; apiBase: string }) {
-  const top = overview.versions[0]
-  const adoption =
-    top && overview.counts.all > 0 ? Math.round((top.count / overview.counts.all) * 100) : null
-  const release = overview.release
-  const latestPublished = release?.latestVersion ?? null
-  // The manifest names a filename, not a URL — Caddy serves the feed directory
-  // at /updates on this same host, alongside the API (see UPDATE_FEED_DIR).
-  const installerHref = release?.installer ? `${apiBase}/updates/${release.installer}` : null
-
-  return (
-    <div className="kpis">
-      <div className="kpi">
-        <span className="kpi-label">Fleet uptime · 30d</span>
-        <span className="kpi-value">
-          {overview.uptimeBps30d == null ? '—' : `${(overview.uptimeBps30d / 100).toFixed(1)}%`}
-        </span>
-        <span className="kpi-note">
-          {overview.uptimeBps30d == null ? 'Collecting history' : 'Reporting time per terminal'}
-        </span>
-      </div>
-
-      <div className="kpi">
-        <span className="kpi-label">Sync lag · p95</span>
-        <span className="kpi-value">
-          {overview.syncLagMs.p95 == null ? 'Clear' : duration(overview.syncLagMs.p95)}
-        </span>
-        <span className="kpi-note">
-          {overview.syncLagMs.p50 == null
-            ? 'No queued rows anywhere'
-            : `Median ${duration(overview.syncLagMs.p50)}`}
-        </span>
-      </div>
-
-      <div className="kpi">
-        <span className="kpi-label">Current build</span>
-        <span className="kpi-value mono">{top?.version ?? '—'}</span>
-        <span className="kpi-note">
-          {adoption == null
-            ? 'No terminals reporting'
-            : `${adoption}% of ${overview.counts.all} · ${overview.versions.length} version(s) live`}
-        </span>
-        {/* The published version, when it is not the one terminals are running.
-            "Current build" is only ever what the fleet REPORTED, so a release
-            that has reached nobody yet has no way of appearing on this page —
-            which is the exact moment somebody goes looking for it. */}
-        {latestPublished && latestPublished !== top?.version && (
-          <span className="kpi-note">
-            <b className="mono">{latestPublished}</b> published, not yet taken
-          </span>
-        )}
-        {installerHref && (
-          <span className="kpi-note">
-            <a href={installerHref} target="_blank" rel="noreferrer">
-              Download installer
-            </a>
-            {release?.releasedAt && ` · published ${timeAgo(release.releasedAt)}`}
-          </span>
-        )}
-      </div>
-
-      <div className="kpi">
-        <span className="kpi-label">Unverified keys</span>
-        <span className="kpi-value">{overview.unverifiedDevices}</span>
-        <span className="kpi-note">
-          {overview.unverifiedDevices === 0
-            ? 'Every terminal reports on its own key'
-            : 'Still on the shared enrollment secret'}
-        </span>
-      </div>
-
-      <div className="kpi">
-        <span className="kpi-label">Pending commands</span>
-        <span className="kpi-value">{overview.pendingCommands}</span>
-        <span className="kpi-note">
-          {overview.pendingCommands === 0
-            ? 'Nothing queued'
-            : 'Waiting for a terminal to check in'}
-        </span>
-      </div>
-    </div>
-  )
-}
 
 /* -------------------------------------------------------------------- gauge */
 

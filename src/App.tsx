@@ -29,6 +29,7 @@ import { Operators } from './views/Operators.tsx'
 import { Shop } from './views/Shop.tsx'
 import { Shops } from './views/Shops.tsx'
 import { Terminals } from './views/Terminals.tsx'
+import { Triage } from './views/Triage.tsx'
 
 const LS_SESSION = 'fleet_session'
 const LS_API = 'fleet_api'
@@ -171,14 +172,19 @@ function Dashboard({
         view={PARENT[view] ?? view}
         onView={navigate}
         overview={overview}
-        updatedAt={updatedAt}
-        refreshing={refreshing}
-        onRefresh={() => void refresh()}
         onSignOut={onSignOut}
       />
 
       <main className="main">
-        <div className="view">
+        <StatusBar
+          overview={overview}
+          updatedAt={updatedAt}
+          refreshing={refreshing}
+          onRefresh={() => void refresh()}
+          onNavigate={navigate}
+          onSearch={() => setPaletteOpen(true)}
+        />
+        <div className="view" data-view={view}>
           {view === 'device' ? (
             <Device
               // Remount per terminal: a page carrying another one's loaded
@@ -230,7 +236,7 @@ function Dashboard({
             <Operators api={api} onUnauthorized={onSignOut} />
           ) : view === 'audit' ? (
             <Audit api={api} onUnauthorized={onSignOut} />
-          ) : (
+          ) : view === 'terminals' ? (
             <Terminals
               api={api}
               route={route}
@@ -238,6 +244,14 @@ function Dashboard({
               reloadKey={reloadKey}
               onNavigate={navigate}
               onReplace={replace}
+            />
+          ) : (
+            <Triage
+              api={api}
+              overview={overview}
+              reloadKey={reloadKey}
+              onNavigate={navigate}
+              onUnauthorized={onSignOut}
             />
           )}
         </div>
@@ -253,15 +267,68 @@ function Dashboard({
 
 /* ------------------------------------------------------------------ sidebar */
 
+interface NavItem {
+  id: View
+  label: string
+  icon: IconName
+  count?: number | null
+  /** Counts that mean "unfinished work" get weight; totals stay quiet. */
+  urgent?: boolean
+}
+
+/**
+ * Eleven flat destinations had become a list to read rather than a place to
+ * look. Grouped by the question being asked: what is wrong now, what does the
+ * fleet look like, what are we shipping to it, and who did what.
+ */
+function navGroups(overview: Overview | null, role: Session['operator']['role']): {
+  label: string | null
+  items: NavItem[]
+}[] {
+  const alerts = overview?.openAlerts ?? null
+  const errors = overview?.openErrorGroups ?? null
+  return [
+    {
+      label: null,
+      items: [
+        { id: 'triage', label: 'Triage', icon: 'inbox' },
+        { id: 'alerts', label: 'Alerts', icon: 'bell', count: alerts, urgent: (alerts ?? 0) > 0 },
+        { id: 'errors', label: 'Errors', icon: 'bug', count: errors, urgent: (errors ?? 0) > 0 },
+      ],
+    },
+    {
+      label: 'Fleet',
+      items: [
+        { id: 'terminals', label: 'Terminals', icon: 'terminals', count: overview?.counts.all ?? null },
+        { id: 'shops', label: 'Shops', icon: 'shops' },
+        { id: 'backups', label: 'Backups', icon: 'shield' },
+        { id: 'quality', label: 'Books', icon: 'note' },
+        { id: 'trends', label: 'Trends', icon: 'trend' },
+      ],
+    },
+    {
+      label: 'Ship',
+      items: [
+        { id: 'rollouts', label: 'Rollouts', icon: 'rocket' },
+        { id: 'commands', label: 'Commands', icon: 'prompt' },
+      ],
+    },
+    {
+      label: 'Admin',
+      items: [
+        { id: 'audit', label: 'Audit', icon: 'list' },
+        ...(role === 'admin' ? [{ id: 'operators' as const, label: 'Settings', icon: 'users' as const }] : []),
+      ],
+    },
+  ]
+}
+
 function Sidebar({
   apiBase,
   operator,
   view,
   onView,
   overview,
-  updatedAt,
-  refreshing,
-  onRefresh,
   onSignOut,
 }: {
   apiBase: string
@@ -269,92 +336,53 @@ function Sidebar({
   view: View
   onView: (v: View) => void
   overview: Overview | null
-  updatedAt: number | null
-  refreshing: boolean
-  onRefresh: () => void
   onSignOut: () => void
 }) {
   const [theme, setTheme] = useTheme()
   const [density, setDensity] = useDensity()
-  const since = useTicker(updatedAt != null)
-  const age = updatedAt == null ? null : since - updatedAt
-  const stale = age == null || age > STALE_MS
-
-  const items: {
-    id: View
-    label: string
-    icon: IconName
-    count: number | null
-    /** Counts that mean "unfinished work" get weight; totals stay quiet. */
-    urgent?: boolean
-  }[] = [
-    { id: 'terminals', label: 'Terminals', icon: 'terminals', count: overview?.counts.all ?? null },
-    {
-      id: 'alerts',
-      label: 'Alerts',
-      icon: 'bell',
-      count: overview?.openAlerts ?? null,
-      urgent: (overview?.openAlerts ?? 0) > 0,
-    },
-    {
-      id: 'errors',
-      label: 'Errors',
-      icon: 'bug',
-      count: overview?.openErrorGroups ?? null,
-      urgent: (overview?.openErrorGroups ?? 0) > 0,
-    },
-    { id: 'shops', label: 'Shops', icon: 'shops', count: null },
-    { id: 'rollouts', label: 'Rollouts', icon: 'rocket', count: null },
-    { id: 'trends', label: 'Trends', icon: 'trend', count: null },
-    { id: 'backups', label: 'Backups', icon: 'shield', count: null },
-    { id: 'quality', label: 'Books', icon: 'shops', count: null },
-    { id: 'commands', label: 'Commands', icon: 'prompt', count: null },
-    { id: 'audit', label: 'Audit', icon: 'list', count: null },
-    ...(operator.role === 'admin'
-      ? [{ id: 'operators' as const, label: 'Settings', icon: 'users' as const, count: null }]
-      : []),
-  ]
 
   return (
     <header className="sidebar">
       <Mark />
 
       <nav className="nav" aria-label="Sections">
-        {items.map((it) => (
-          <button
-            key={it.id}
-            type="button"
-            className="nav-item"
-            aria-current={view === it.id ? 'page' : undefined}
-            onClick={() => onView(it.id)}
-          >
-            <Icon name={it.icon} />
-            {it.label}
-            {it.count != null && it.count > 0 && (
-              <span className="nav-count" data-urgent={it.urgent || undefined}>
-                {it.count}
-              </span>
-            )}
-          </button>
+        {navGroups(overview, operator.role).map((group, gi) => (
+          <div className="nav-group" key={group.label ?? gi}>
+            {group.label && <span className="nav-label">{group.label}</span>}
+            {group.items.map((it) => (
+              <button
+                key={it.id}
+                type="button"
+                className="nav-item"
+                aria-current={view === it.id ? 'page' : undefined}
+                onClick={() => onView(it.id)}
+              >
+                <Icon name={it.icon} />
+                {it.label}
+                {it.count != null && it.count > 0 && (
+                  <span className="nav-count" data-urgent={it.urgent || undefined}>
+                    {it.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
 
       <div className="sidebar-foot">
-        <div className="conn">
-          <span className="conn-host" title={apiBase}>
-            {hostOf(apiBase)}
-          </span>
-          <span className="conn-live">
-            <span className="dot dot-live" data-stale={stale || undefined} aria-hidden="true" />
-            {age == null
-              ? 'Connecting…'
-              : stale
-                ? `Last update ${duration(age)} ago`
-                : `Live · ${duration(age)} ago`}
-          </span>
-          <span className="conn-who" title={`${operator.name} · ${operator.role}`}>
-            {operator.email}
-          </span>
+        <div className="conn-row">
+          <div className="conn">
+            <span className="conn-who" title={`${operator.name} · ${operator.role}`}>
+              {operator.name}
+            </span>
+            <span className="conn-host" title={apiBase}>
+              {operator.role} · {hostOf(apiBase)}
+            </span>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onSignOut}>
+            Sign out
+          </Button>
         </div>
 
         <div className="sidebar-actions">
@@ -368,22 +396,97 @@ function Sidebar({
           >
             <Icon name="list" />
           </Button>
-          <Button
-            variant="ghost"
-            className="btn-icon"
-            onClick={onRefresh}
-            busy={refreshing}
-            aria-label="Refresh now"
-            title="Refresh now"
-          >
-            {!refreshing && <Icon name="refresh" />}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onSignOut}>
-            Sign out
-          </Button>
         </div>
       </div>
     </header>
+  )
+}
+
+/* --------------------------------------------------------------- status bar */
+
+/**
+ * The fleet's state on every page, not just the first one. Somebody deep in a
+ * rollout or a shop's inventory still sees a till drop offline, because the
+ * counts that say so sit above whatever they are reading, and each one is a
+ * link to exactly those terminals.
+ */
+function StatusBar({
+  overview,
+  updatedAt,
+  refreshing,
+  onRefresh,
+  onNavigate,
+  onSearch,
+}: {
+  overview: Overview | null
+  updatedAt: number | null
+  refreshing: boolean
+  onRefresh: () => void
+  onNavigate: Navigate
+  onSearch: () => void
+}) {
+  const since = useTicker(updatedAt != null)
+  const age = updatedAt == null ? null : since - updatedAt
+  const stale = age == null || age > STALE_MS
+  const c = overview?.counts
+
+  return (
+    <div className="statusbar">
+      <div className="pulse" aria-label="Fleet state">
+        {c ? (
+          <>
+            <button type="button" className="pulse-item" onClick={() => onNavigate('terminals', { state: 'healthy' })}>
+              <span className="tile tile-key" data-state="healthy" aria-hidden="true" />
+              <b className="num">{c.healthy}</b> healthy
+            </button>
+            <button
+              type="button"
+              className="pulse-item"
+              data-hot={c.attention > 0 || undefined}
+              onClick={() => onNavigate('terminals', { state: 'attention' })}
+            >
+              <span className="tile tile-key" data-state="attention" aria-hidden="true" />
+              <b className="num">{c.attention}</b> attention
+            </button>
+            <button
+              type="button"
+              className="pulse-item"
+              data-hot={c.offline > 0 || undefined}
+              data-tone="bad"
+              onClick={() => onNavigate('terminals', { state: 'offline' })}
+            >
+              <span className="tile tile-key" data-state="offline" aria-hidden="true" />
+              <b className="num">{c.offline}</b> offline
+            </button>
+          </>
+        ) : (
+          <span className="skeleton" style={{ width: 240, height: 14 }} aria-hidden="true" />
+        )}
+      </div>
+
+      <button type="button" className="omnibox" onClick={onSearch}>
+        <Icon name="search" size={14} />
+        <span>Find a terminal, shop or page</span>
+        <kbd>⌘K</kbd>
+      </button>
+
+      <div className="statusbar-end">
+        <span className="conn-live" title={updatedAt ? new Date(updatedAt).toLocaleTimeString() : undefined}>
+          <span className="dot dot-live" data-stale={stale || undefined} aria-hidden="true" />
+          {age == null ? 'Connecting…' : stale ? `Last update ${duration(age)} ago` : 'Live'}
+        </span>
+        <Button
+          variant="ghost"
+          className="btn-icon"
+          onClick={onRefresh}
+          busy={refreshing}
+          aria-label="Refresh now"
+          title="Refresh now"
+        >
+          {!refreshing && <Icon name="refresh" />}
+        </Button>
+      </div>
+    </div>
   )
 }
 

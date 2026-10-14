@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
  * Light is the default because of where this gets used: a lit desk, during the
  * day, glanced at between other work. Dark is a real peer rather than an
  * afterthought — the 11pm "a shop just called" case is exactly when someone
- * opens this — and `system` stays a visible choice rather than a hidden one.
+ * opens this — and `system` stays a visible choice, but it is opt-in: an OS set
+ * to dark for other reasons should not turn the console dark uninvited.
  */
 export type ThemePref = 'light' | 'dark' | 'system'
 
@@ -19,9 +20,14 @@ function apply(pref: ThemePref) {
   document.documentElement.dataset.theme = resolve(pref)
 }
 
+/** Light unless someone has chosen otherwise — `system` is stored explicitly. */
 function read(): ThemePref {
-  const stored = localStorage.getItem(LS_THEME)
-  return stored === 'light' || stored === 'dark' ? stored : 'system'
+  try {
+    const stored = localStorage.getItem(LS_THEME)
+    return stored === 'dark' || stored === 'system' ? stored : 'light'
+  } catch {
+    return 'light'
+  }
 }
 
 export function useTheme(): [ThemePref, (next: ThemePref) => void] {
@@ -39,8 +45,12 @@ export function useTheme(): [ThemePref, (next: ThemePref) => void] {
   }, [pref])
 
   const set = useCallback((next: ThemePref) => {
-    if (next === 'system') localStorage.removeItem(LS_THEME)
-    else localStorage.setItem(LS_THEME, next)
+    try {
+      if (next === 'light') localStorage.removeItem(LS_THEME)
+      else localStorage.setItem(LS_THEME, next)
+    } catch {
+      // A blocked localStorage costs the preference, not the page.
+    }
     setPref(next)
   }, [])
 

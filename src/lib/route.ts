@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from 'react'
  */
 
 export type View =
+  | 'triage'
   | 'terminals'
   | 'device'
   | 'shops'
@@ -32,6 +33,7 @@ export type View =
   | 'audit'
 
 const VIEWS: View[] = [
+  'triage',
   'terminals',
   'device',
   'shops',
@@ -63,7 +65,12 @@ export interface Route {
   params: Record<string, string>
 }
 
-const DEFAULT_ROUTE: Route = { view: 'terminals', params: {} }
+/**
+ * Home is the triage queue, not the terminals table: the first question anyone
+ * opening this asks is "does anything need me", and a 200-row list answers it
+ * only after scanning. `#/terminals` links keep working exactly as before.
+ */
+const DEFAULT_ROUTE: Route = { view: 'triage', params: {} }
 
 /**
  * Links minted while detail was a drawer over its list, of the shape

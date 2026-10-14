@@ -28,6 +28,7 @@ export interface PaletteAction {
 }
 
 const SECTIONS: { view: View; label: string; icon: IconName }[] = [
+  { view: 'triage', label: 'Triage', icon: 'inbox' },
   { view: 'terminals', label: 'Terminals', icon: 'terminals' },
   { view: 'alerts', label: 'Alerts', icon: 'bell' },
   { view: 'errors', label: 'Errors', icon: 'bug' },

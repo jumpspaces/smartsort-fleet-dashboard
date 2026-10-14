@@ -131,9 +131,9 @@
     'Roboto Mono', monospace;
 
   /* -- shape --------------------------------------------------------------- */
-  --r-sm: 6px;
-  --r-md: 9px;
-  --r-lg: 14px;
+  --r-sm: 5px;
+  --r-md: 7px;
+  --r-lg: 10px;
   --r-full: 999px;
 
   /* -- motion -------------------------------------------------------------- */
@@ -148,7 +148,8 @@
   --z-nav: 20;
   --z-overlay: 30;
 
-  --sidebar-w: 236px;
+  --sidebar-w: 224px;
+  --statusbar-h: 52px;
 }
 
 /* =============================================================================
@@ -458,14 +459,29 @@ body {
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 14px;
+  overflow-y: auto;
+  min-height: 0;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nav-label {
+  padding: 0 9px 4px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--ink-muted);
 }
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 7px 9px;
+  padding: 6px 9px;
   border: 0;
   border-radius: var(--r-md);
   background: transparent;
@@ -488,10 +504,9 @@ body {
   color: var(--ink);
 }
 .nav-item[aria-current='page'] {
-  background: var(--surface);
+  background: color-mix(in oklch, var(--ink) 7%, transparent);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: var(--shadow-sm);
 }
 .nav-count {
   margin-left: auto;
@@ -503,7 +518,7 @@ body {
   padding: 1px 7px;
 }
 .nav-item[aria-current='page'] .nav-count {
-  background: var(--surface-3);
+  background: var(--surface);
   color: var(--ink);
 }
 
@@ -540,8 +555,18 @@ body {
 }
 .sidebar-actions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
+}
+.conn-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.conn-row .conn {
+  flex: 1;
+  padding-right: 0;
 }
 
 /* Theme control: three explicit states, so "auto" stays visible as a choice. */
@@ -599,7 +624,7 @@ body {
 .view {
   width: 100%;
   max-width: 1520px;
-  padding: 26px 32px 56px;
+  padding: 28px 32px 56px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -612,8 +637,9 @@ body {
   flex-wrap: wrap;
 }
 .view-title {
-  font-size: var(--t-xl);
-  letter-spacing: -0.018em;
+  font-size: var(--t-2xl);
+  line-height: 1.2;
+  letter-spacing: -0.022em;
 }
 .view-sub {
   margin-top: 2px;
@@ -866,7 +892,6 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 .panel-head {
@@ -1477,8 +1502,40 @@ tbody tr[data-clickable='true']:hover .chev {
   .conn {
     display: none;
   }
+  /* One scrolling strip: twelve destinations wrapped into rows would push
+     the page itself below the fold on a phone. */
+  .nav {
+    order: 3;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 2px;
+    width: calc(100% + 32px);
+    margin: 0 -16px;
+    padding: 0 16px 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-group {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    flex: none;
+  }
+  .nav-item {
+    width: auto;
+    white-space: nowrap;
+  }
+  .nav-label {
+    display: none;
+  }
   .view {
     padding: 18px 16px 44px;
+  }
+  .statusbar {
+    position: static;
+    padding: 8px 16px;
+  }
+  .omnibox span {
+    display: none;
   }
 }
 
@@ -2175,8 +2232,9 @@ tbody tr[data-clickable='true']:hover .chev {
 /* Who is signed in — the console is per-person now, so the rail says which. */
 .conn-who {
   display: block;
-  font-size: var(--t-xs);
-  color: var(--ink-faint);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2323,5 +2381,581 @@ select.input {
   }
   .spinner {
     animation: spin 900ms linear infinite !important;
+  }
+}
+
+/* =============================================================================
+   status bar — the fleet's three counts above every page
+
+   Same plane as the page, a hairline below, and a frosted backing only so rows
+   scrolling under it stay legible: it is sticky, and that is the one reason
+   the blur exists.
+   ============================================================================= */
+
+.statusbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: var(--statusbar-h);
+  padding: 8px 32px;
+  background: color-mix(in oklch, var(--bg) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.pulse {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.pulse-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.pulse-item b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.pulse-item:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.pulse-item[data-hot] {
+  color: var(--warn);
+  font-weight: 500;
+}
+.pulse-item[data-hot] b {
+  color: var(--warn);
+}
+.pulse-item[data-hot][data-tone='bad'],
+.pulse-item[data-hot][data-tone='bad'] b {
+  color: var(--bad);
+}
+
+.omnibox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  width: min(320px, 100%);
+  min-height: 32px;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--t-sm);
+  text-align: left;
+  cursor: text;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.omnibox:hover {
+  border-color: color-mix(in oklch, var(--line-strong) 60%, var(--ink));
+}
+.omnibox span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.omnibox kbd,
+.triage-keys kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+.statusbar-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* =============================================================================
+   tiles — one terminal, one square
+
+   The same shape grammar as the status dot, squared so a few hundred of them
+   pack into a wall: filled = healthy, ring = attention, slashed outline =
+   offline. Hue only reinforces.
+   ============================================================================= */
+
+.tile {
+  --tile: 14px;
+  display: inline-block;
+  flex: none;
+  width: var(--tile);
+  height: var(--tile);
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--ok-mark);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+}
+.tile[data-state='attention'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 3px var(--warn-mark);
+}
+.tile[data-state='offline'] {
+  background:
+    linear-gradient(
+      to top right,
+      transparent calc(50% - 1px),
+      var(--bad-mark) calc(50% - 1px),
+      var(--bad-mark) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    );
+  box-shadow: inset 0 0 0 2px var(--bad-mark);
+}
+.tile[data-muted='true'] {
+  opacity: 0.35;
+}
+button.tile:hover {
+  transform: scale(1.25);
+}
+button.tile:focus-visible {
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.tile-key {
+  --tile: 10px;
+  border-radius: 2.5px;
+  cursor: inherit;
+}
+.tile-key[data-state='attention'] {
+  box-shadow: inset 0 0 0 2px var(--warn-mark);
+}
+.tile-key[data-state='offline'] {
+  box-shadow: inset 0 0 0 1.5px var(--bad-mark);
+}
+
+/* =============================================================================
+   triage — queue + wall on the left, vitals on the right
+   ============================================================================= */
+
+.triage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+  align-items: start;
+}
+.triage-main,
+.triage-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.triage-side {
+  position: sticky;
+  top: calc(var(--statusbar-h) + 20px);
+}
+.triage-keys {
+  display: flex;
+  align-items: center;
+  padding-top: 8px;
+  font-size: var(--t-xs);
+  color: var(--ink-muted);
+}
+.triage-keys span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 10px;
+}
+.queue {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.queue-group {
+  display: flex;
+  flex-direction: column;
+}
+.queue-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 0 8px;
+  font-size: var(--t-base);
+  font-weight: 600;
+}
+.queue-label .num {
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+.queue-note {
+  margin-left: 4px;
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+.queue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+/* One row: severity mark, what + where, when, action. */
+.qi {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+  border-top: 1px solid var(--line);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.qi:first-child {
+  border-top: 0;
+}
+.qi[data-cursor='true'] {
+  background: var(--surface-2);
+}
+.qi-skel {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-bottom: 6px;
+  background: var(--surface);
+}
+
+/* The mark is the severity: a filled red square for critical, an amber ring
+   for warning — the same shapes as the tiles, so one vocabulary. */
+.qi-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  color: var(--warn);
+  background: var(--warn-bg);
+  box-shadow: inset 0 0 0 1px var(--warn-line);
+}
+.qi[data-severity='critical'] .qi-mark {
+  color: var(--ink-inverse);
+  background: var(--bad-mark);
+  box-shadow: none;
+}
+.qi[data-acknowledged] .qi-mark {
+  color: var(--ink-muted);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.qi-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* The whole row is the hit area for opening; actions sit above it. */
+.qi-body::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.qi-body:focus-visible {
+  outline: none;
+}
+.qi:has(.qi-body:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.qi-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--ink);
+}
+.qi[data-acknowledged] .qi-title {
+  font-weight: 500;
+}
+.qi-meta {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
+}
+.qi-where,
+.qi-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qi-where {
+  color: var(--ink);
+}
+.qi-detail::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--ink-faint);
+}
+.qi-where:empty + .qi-detail::before {
+  content: none;
+}
+.qi-when {
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.qi-actions {
+  position: relative;
+  z-index: var(--z-base);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 104px;
+}
+.qi-who {
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.queue-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: -10px;
+}
+
+.linkish {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--t-sm);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.linkish:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+
+.all-clear {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.all-clear-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  background: var(--ok-bg);
+  color: var(--ok);
+  box-shadow: inset 0 0 0 1px var(--ok-line);
+}
+.all-clear .strong {
+  font-size: var(--t-md);
+  margin-bottom: 2px;
+}
+
+/* -- wall ----------------------------------------------------------------- */
+
+.wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 16px 20px;
+}
+.wall-shop {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.wall-shop-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--t-sm);
+}
+.wall-shop-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.wall-shop[data-worst='healthy'] .wall-shop-name {
+  color: var(--ink-muted);
+}
+.wall-shop-count {
+  font-size: var(--t-xs);
+  color: var(--ink-muted);
+}
+.wall-shop[data-worst='offline'] .wall-shop-count {
+  color: var(--bad);
+  font-weight: 600;
+}
+.wall-shop[data-worst='attention'] .wall-shop-count {
+  color: var(--warn);
+  font-weight: 600;
+}
+.wall-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wall-legend {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.wall-skeleton {
+  height: 120px;
+  border-radius: var(--r-md);
+}
+
+/* -- vitals --------------------------------------------------------------- */
+
+.vitals {
+  margin: 0;
+  padding: 4px 16px;
+}
+.vital {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.vital:first-child {
+  border-top: 0;
+}
+.vital dt {
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
+}
+.vital dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-weight: 600;
+  text-align: right;
+}
+.vital-note {
+  font-size: var(--t-xs);
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+.vitals-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: var(--t-sm);
+}
+.vitals-foot a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+@media (max-width: 1180px) {
+  .triage-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .triage-side {
+    position: static;
+  }
+}
+
+@media (max-width: 620px) {
+  .statusbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .omnibox {
+    width: auto;
+    margin-left: 0;
+  }
+  .triage-keys {
+    display: none;
+  }
+  .qi {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'mark body actions' 'mark when actions';
+    row-gap: 2px;
+  }
+  .qi-mark {
+    grid-area: mark;
+    align-self: start;
+  }
+  .qi-body {
+    grid-area: body;
+  }
+  .qi-title {
+    white-space: normal;
+  }
+  .qi-when {
+    grid-area: when;
+    font-size: var(--t-xs);
+  }
+  .qi-actions {
+    grid-area: actions;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.tile:hover {
+    transform: none;
   }
 }

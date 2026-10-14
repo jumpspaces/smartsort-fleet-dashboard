@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { buildHash, PARENT, parseHash } from './route.ts'
 
 describe('parseHash', () => {
-  it('defaults to terminals when there is no hash', () => {
-    expect(parseHash('')).toEqual({ view: 'terminals', params: {} })
-    expect(parseHash('#')).toEqual({ view: 'terminals', params: {} })
-    expect(parseHash('#/')).toEqual({ view: 'terminals', params: {} })
+  it('defaults to triage when there is no hash', () => {
+    expect(parseHash('')).toEqual({ view: 'triage', params: {} })
+    expect(parseHash('#')).toEqual({ view: 'triage', params: {} })
+    expect(parseHash('#/')).toEqual({ view: 'triage', params: {} })
   })
 
   it('reads the view and its params', () => {
@@ -17,7 +17,7 @@ describe('parseHash', () => {
 
   it('falls back for an unknown view rather than rendering nothing', () => {
     // A stale or hand-edited link must land somewhere useful, not on a blank page.
-    expect(parseHash('#/nonsense?a=b')).toEqual({ view: 'terminals', params: {} })
+    expect(parseHash('#/nonsense?a=b')).toEqual({ view: 'triage', params: {} })
   })
 
   it('drops empty params so they never reach a query', () => {
