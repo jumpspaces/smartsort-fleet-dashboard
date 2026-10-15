@@ -17,12 +17,22 @@ import { exact, timeAgo } from '../lib/format.ts'
 /** In lockstep with server domain/holidays.ts SEASON_IDS, in the order of the year. */
 const SEASONS: Array<{ id: string; name: string }> = [
   { id: 'newyear', name: 'New Year' },
+  { id: 'constitution', name: 'Constitution Day' },
   { id: 'valentines', name: 'Valentine’s Day' },
   { id: 'independence', name: 'Independence Day' },
-  { id: 'easter', name: 'Easter Sunday' },
+  { id: 'womens', name: 'International Women’s Day' },
+  { id: 'ramadan', name: 'Ramadan (first day)' },
   { id: 'eid-fitr', name: 'Eid al-Fitr' },
+  { id: 'easter', name: 'Easter Sunday' },
+  { id: 'mayday', name: 'May Day' },
+  { id: 'mothers', name: 'Mothers’ Day' },
+  { id: 'africa', name: 'African Union Day' },
   { id: 'eid-adha', name: 'Eid al-Adha' },
+  { id: 'fathers', name: 'Fathers’ Day' },
   { id: 'republic', name: 'Republic Day' },
+  { id: 'founders', name: 'Founders’ Day' },
+  { id: 'pink', name: 'Pink October (1 October)' },
+  { id: 'blackfriday', name: 'Black Friday' },
   { id: 'farmers', name: 'Farmers’ Day' },
   { id: 'christmas', name: 'Christmas Day' },
 ]
