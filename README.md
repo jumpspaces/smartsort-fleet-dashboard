@@ -30,7 +30,7 @@ FLEET_REPORT_SECRET=<openssl rand -hex 24>   # enrollment key, baked into the de
 FLEET_ADMIN_SECRET=<openssl rand -hex 24>    # enables the vendor surface; signs operator sessions
 
 # Optional — where alerts are pushed. Any JSON webhook: Slack, Discord, or a
-# two-line relay in front of an SMS/WhatsApp provider.
+# two-line relay in front of an SMS provider.
 FLEET_ALERT_WEBHOOK_URL=https://…
 FLEET_ALERT_WEBHOOK_SECRET=<openssl rand -hex 24>   # sent as X-Fleet-Signature
 

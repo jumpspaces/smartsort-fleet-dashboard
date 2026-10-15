@@ -22,7 +22,6 @@ export const FEATURE_LABEL: Record<LimitFeature, string> = {
   reports: 'Report write-ups',
   digests: 'Scheduled briefings',
   watch: 'Unusual activity',
-  whatsapp: 'WhatsApp',
   product_photo: 'Products from photos',
   catalogue: 'Catalogue tidy-up',
   cash_helper: 'Cash variance helper',

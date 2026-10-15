@@ -738,7 +738,6 @@ export type LimitFeature =
   | 'reports'
   | 'digests'
   | 'watch'
-  | 'whatsapp'
   | 'product_photo'
   | 'catalogue'
   | 'cash_helper'
@@ -841,32 +840,6 @@ export interface AssistantBrief {
   content: { headline: string; points: string[]; actions: string[] }
   createdAt: string
   cached: boolean
-}
-
-/** The WhatsApp Business account the assistant talks through. Secrets are never returned. */
-export interface WhatsAppSettings {
-  phoneNumberId: string | null
-  displayNumber: string | null
-  verifyToken: string | null
-  digestTemplate: string | null
-  orderTemplate: string | null
-  templateLanguage: string
-  hasAccessToken: boolean
-  hasAppSecret: boolean
-  configured: boolean
-  updatedBy: string | null
-  updatedAt: string | null
-}
-
-export interface WhatsAppPatch {
-  phoneNumberId?: string | null
-  displayNumber?: string | null
-  accessToken?: string
-  appSecret?: string
-  verifyToken?: string | null
-  digestTemplate?: string | null
-  orderTemplate?: string | null
-  templateLanguage?: string
 }
 
 /** The shop assistant's switches, as GET /fleet/assistant returns them. */
@@ -1295,10 +1268,6 @@ export interface Api {
   setHoliday(season: string, day: string): Promise<void>
   /** Drop a hand-set date; the feed's takes over again. */
   clearHoliday(season: string, year: number): Promise<void>
-  /** The WhatsApp account settings (secrets never returned). */
-  whatsappSettings(): Promise<WhatsAppSettings>
-  /** Save WhatsApp settings. Admin only. */
-  setWhatsappSettings(patch: WhatsAppPatch): Promise<WhatsAppSettings>
   revokeStoreKey(keyId: string): Promise<void>
   /**
    * Take a terminal off its shop for good: revokes the key AND stops the
@@ -1782,11 +1751,6 @@ export function createApi(
     clearHoliday: async (season, year) => {
       await call(`/fleet/holidays/${encodeURIComponent(season)}/${year}`, { method: 'DELETE' })
     },
-
-    whatsappSettings: async () => (await call<{ whatsapp: WhatsAppSettings }>('/fleet/assistant/whatsapp')).whatsapp,
-
-    setWhatsappSettings: async (patch) =>
-      (await call<{ whatsapp: WhatsAppSettings }>('/fleet/assistant/whatsapp', { method: 'PUT', body: JSON.stringify(patch) })).whatsapp,
 
     revokeStoreKey: async (keyId) => {
       await post(`/api/stores/keys/${encodeURIComponent(keyId)}/revoke`)
