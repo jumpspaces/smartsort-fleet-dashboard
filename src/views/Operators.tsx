@@ -4,6 +4,7 @@ import { Button, Chip, Empty, Notice, Status, TableSkeleton } from '../component
 import { exact, timeAgo } from '../lib/format.ts'
 import { AlertThresholds } from './AlertThresholds.tsx'
 import { AssistantSwitches } from './AssistantSwitches.tsx'
+import { HolidayCalendar } from './HolidayCalendar.tsx'
 import { WhatsAppSettingsCard } from './WhatsAppSettings.tsx'
 import { AssistantUsage } from './AssistantUsage.tsx'
 import { MaintenanceWindows } from './MaintenanceWindows.tsx'
@@ -148,6 +149,7 @@ export function Operators({ api, onUnauthorized }: { api: Api; onUnauthorized: (
       <AssistantSwitches api={api} onUnauthorized={onUnauthorized} />
       <AssistantUsage api={api} onUnauthorized={onUnauthorized} />
       <WhatsAppSettingsCard api={api} onUnauthorized={onUnauthorized} />
+      <HolidayCalendar api={api} onUnauthorized={onUnauthorized} />
       <AlertThresholds api={api} />
       <RuleSettings api={api} />
       {/* Detection is above; this is delivery. Two different questions —

@@ -1094,6 +1094,24 @@ export class Unauthorized extends Error {}
 /** Thrown for a 403 — signed in, but this role may not do that. */
 export class Forbidden extends Error {}
 
+/** One festive day's date in the calendar every till's customer screen follows. */
+export interface HolidayRow {
+  season: string
+  year: number
+  /** YYYY-MM-DD */
+  day: string
+  /** 'feed': the daily read of the public calendar. 'manual': set here, and the feed leaves it alone. */
+  source: 'feed' | 'manual'
+  updatedAt: string
+}
+
+export interface HolidayFeedStatus {
+  at: string | null
+  ok: boolean
+  found: number
+  error: string | null
+}
+
 const trimBase = (base: string) => base.replace(/\/+$/, '')
 
 async function failure(res: Response): Promise<Error> {
@@ -1269,6 +1287,14 @@ export interface Api {
   fleetHealthBrief(fresh?: boolean): Promise<AssistantBrief>
   /** The assistant's brief on one shop, for whoever is about to call it. */
   shopSupportBrief(shopId: string, fresh?: boolean): Promise<AssistantBrief>
+  /** The festive-day calendar, and how the last read of the feed went. */
+  holidays(): Promise<{ holidays: HolidayRow[]; refresh: HolidayFeedStatus }>
+  /** Read the public holiday feed now. */
+  refreshHolidays(): Promise<{ holidays: HolidayRow[]; refresh: HolidayFeedStatus }>
+  /** Set a festive day's date by hand; the year is the date's own. */
+  setHoliday(season: string, day: string): Promise<void>
+  /** Drop a hand-set date; the feed's takes over again. */
+  clearHoliday(season: string, year: number): Promise<void>
   /** The WhatsApp account settings (secrets never returned). */
   whatsappSettings(): Promise<WhatsAppSettings>
   /** Save WhatsApp settings. Admin only. */
@@ -1744,6 +1770,18 @@ export function createApi(
 
     shopSupportBrief: (shopId, fresh = false) =>
       call<AssistantBrief>(shopPath(shopId, `/assistant/support-brief${fresh ? '?fresh=1' : ''}`), { method: 'POST' }),
+
+    holidays: () => call('/fleet/holidays'),
+
+    refreshHolidays: () => post('/fleet/holidays/refresh'),
+
+    setHoliday: async (season, day) => {
+      await call(`/fleet/holidays/${encodeURIComponent(season)}`, { method: 'PUT', body: JSON.stringify({ day }) })
+    },
+
+    clearHoliday: async (season, year) => {
+      await call(`/fleet/holidays/${encodeURIComponent(season)}/${year}`, { method: 'DELETE' })
+    },
 
     whatsappSettings: async () => (await call<{ whatsapp: WhatsAppSettings }>('/fleet/assistant/whatsapp')).whatsapp,
 
