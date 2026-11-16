@@ -10,6 +10,7 @@ import { invalidate, useAction } from '../../lib/query.ts'
 import { useSession } from '../../lib/session.tsx'
 import { MuteDialog } from '../shop/ShopTools.tsx'
 import { tillName } from '../../lib/plain.ts'
+import { hourly } from '../../lib/beats.ts'
 
 /** Header buttons: silence this till's alerts, or end a silence early. */
 export function TillActions({ d }: { d: Device }) {
@@ -199,6 +200,40 @@ export function Timeline({ id }: { id: string }) {
             </>
           )
         }
+      </Loadable>
+    </Card>
+  )
+}
+
+/** The last 48 hours, hour by hour: what was waiting to send, and what was sold. */
+export function TwoDays({ d }: { d: Device }) {
+  const shops = useShopIndex()
+  const currency = (d.shopId && shops.get(d.shopId)?.currency) || 'GHS'
+  const h = useApi(`device:beats:${d.deviceId}`, (c, s) => api.deviceHistory(c, d.deviceId, 48, s), { every: 120_000 })
+  const label = (ms: number) => new Date(ms).toLocaleString(undefined, { weekday: 'short', hour: 'numeric' })
+  return (
+    <Card title="Last 48 hours" sub="Hour by hour, from the till's own check-ins.">
+      <Loadable q={h} rows={3}>
+        {(hist) => {
+          if (!hist.beats?.length) return <div className="small muted">No check-ins in the last 48 hours.</div>
+          const hours = hourly(hist.beats, 48)
+          return (
+            <div className="stack">
+              <div>
+                <div className="small sub" style={{ marginBottom: 4 }}>
+                  Sales waiting to send
+                </div>
+                <Bars label="Unsent sales by hour" height={48} format={(n) => count(n)} points={hours.map((b) => ({ key: String(b.at), value: b.unsent, label: label(b.at) }))} />
+              </div>
+              <div>
+                <div className="small sub" style={{ marginBottom: 4 }}>
+                  Sales taken
+                </div>
+                <Bars label="Sales by hour" height={48} format={(n) => money(n, currency)} points={hours.map((b) => ({ key: String(b.at), value: b.sales, label: label(b.at) }))} />
+              </div>
+            </div>
+          )
+        }}
       </Loadable>
     </Card>
   )

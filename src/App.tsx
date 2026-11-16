@@ -1,6 +1,11 @@
 import { Component, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Palette, ShortcutHelp } from './components/Palette.tsx'
 import { isTyping } from './lib/match.ts'
+import { clearRowNav, handleRowKey } from './lib/rownav.ts'
+import { StatusBar } from './components/StatusBar.tsx'
+import { notifySupported, useAlertNotifications, useNotifyPref } from './lib/notify.ts'
+import { useRecordVisit } from './lib/visit.ts'
+import { useAlerts } from './data.ts'
 import { useDensity } from './lib/prefs.ts'
 import type { Session } from './api/types.ts'
 import { Icon, type IconName } from './components/Icon.tsx'
@@ -115,6 +120,8 @@ function Shell() {
       } else if (e.key === '?') {
         e.preventDefault()
         setHelp(true)
+      } else if (['j', 'k', 'Enter', 'a', 'Escape'].includes(e.key) && handleRowKey(e.key)) {
+        e.preventDefault()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -123,6 +130,12 @@ function Shell() {
   const overview = useOverview()
   const openAlerts = overview.data?.openAlerts ?? 0
   const openProblems = overview.data?.openErrorGroups ?? 0
+  const alerts = useAlerts('open')
+  const [notifyOn, toggleNotify] = useNotifyPref()
+  useAlertNotifications(alerts.data, notifyOn)
+  useRecordVisit(session.operator.id)
+  const pageKey = route.page + ('id' in route ? route.id : '')
+  useEffect(() => clearRowNav(), [pageKey])
 
   return (
     <div className="shell">
@@ -179,6 +192,18 @@ function Shell() {
             >
               <Icon name="rows" />
             </button>
+            {notifySupported() && (
+              <button
+                className="btn icon ghost"
+                onClick={() => void toggleNotify()}
+                aria-pressed={notifyOn}
+                title={notifyOn ? 'Desktop alerts on — urgent alerts pop up while this tab is in the background' : 'Turn on desktop alerts for urgent alerts'}
+                aria-label={notifyOn ? 'Turn off desktop alerts' : 'Turn on desktop alerts'}
+                style={notifyOn ? { color: 'var(--ink)', background: 'var(--surface-2)' } : undefined}
+              >
+                <Icon name="bell" />
+              </button>
+            )}
             <button className="btn icon ghost" onClick={() => setPalette(true)} title="Go to… (⌘K)" aria-label="Go to a page, shop or till">
               <Icon name="search" />
             </button>
@@ -194,6 +219,7 @@ function Shell() {
         <ErrorBoundary key={route.page + ('id' in route ? route.id : '')}>
           <Page route={route} params={params} />
         </ErrorBoundary>
+        <StatusBar />
       </main>
     </div>
   )

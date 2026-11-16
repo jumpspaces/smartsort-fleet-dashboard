@@ -1483,3 +1483,127 @@ pre.stack {
   display: block;
   width: 100%;
 }
+
+/* -------------------------------------------------- keyboard row picking */
+
+[data-nav-active] {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+tr[data-nav-active] td {
+  background: var(--surface-2);
+}
+
+/* ------------------------------------------------------------ status bar */
+
+.statusbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  margin: 32px -32px -64px;
+  padding: 8px 32px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(6px);
+  font-size: 12.5px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.statusbar a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: var(--ink-2);
+}
+.statusbar a:hover {
+  color: var(--ink);
+}
+.statusbar-live {
+  margin-left: auto;
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+/* Short pages: push the status bar to the bottom without stretching the page. */
+.main > .statusbar {
+  margin-top: auto;
+}
+.main > :first-child {
+  margin-bottom: 32px;
+}
+@media (max-width: 860px) {
+  .statusbar {
+    margin: 24px -16px -48px;
+    padding: 8px 16px;
+    gap: 14px;
+  }
+  .statusbar-live {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------ tables as cards on phones */
+
+@media (max-width: 640px) {
+  .table.cards thead {
+    display: none;
+  }
+  .table.cards,
+  .table.cards tbody,
+  .table.cards tr,
+  .table.cards td {
+    display: block;
+    width: 100%;
+  }
+  .table.cards tr {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .table.cards tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .table.cards td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 3px 0;
+    border: 0;
+    text-align: right;
+  }
+  .table.cards td.r {
+    text-align: right;
+  }
+  .table.cards td::before {
+    content: attr(data-label);
+    flex: none;
+    color: var(--ink-3);
+    font-size: 12px;
+    text-align: left;
+  }
+  /* The first cell is the row's title: full width, no label. */
+  .table.cards td:first-child {
+    display: block;
+    text-align: left;
+    padding-bottom: 6px;
+  }
+  .table.cards td:first-child::before {
+    content: none;
+  }
+  .table.cards td[data-label='']::before {
+    content: none;
+  }
+  .table.cards .strip {
+    width: 140px;
+  }
+  .table.cards tbody tr.link:hover td {
+    background: none;
+  }
+}

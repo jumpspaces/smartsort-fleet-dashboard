@@ -112,7 +112,7 @@ function AlertItem({
   const [showSent, setShowSent] = useState(false)
   const critical = a.severity === 'critical'
   return (
-    <li>
+    <li data-nav>
       <div className="spread" style={{ alignItems: 'flex-start' }}>
         <div style={{ flex: '1 1 320px', minWidth: 0 }}>
           <div className="row" style={{ gap: 8 }}>
@@ -184,7 +184,7 @@ function AlertItem({
             </div>
           )}
           {canAck && (
-            <button className="btn sm" style={{ marginTop: 6 }} disabled={acking} onClick={onAck}>
+            <button className="btn sm" data-ack style={{ marginTop: 6 }} disabled={acking} onClick={onAck}>
               I'm on it
             </button>
           )}

@@ -358,3 +358,81 @@ describe('sign-in page', () => {
     expect(await screen.findByText('Enter your email.')).toBeTruthy()
   })
 })
+
+describe('keyboard triage', () => {
+  it('j picks rows, Enter opens one, a takes an alert', async () => {
+    signedIn('operator')
+    let acked = false
+    const server = fakeServer([
+      ...shellRoutes,
+      { path: '/fleet/rules', reply: { rules: [] } },
+      {
+        path: '/fleet/alerts',
+        reply: (req: { url: URL }) => {
+          const all = [alert({ state: acked ? 'acknowledged' : 'open' }), alert({ id: 'al2', deviceId: 'dev-9' })]
+          return { alerts: req.url.searchParams.get('state') === 'all' ? all : all.filter((a) => a.state === 'open') }
+        },
+      },
+      {
+        method: 'POST',
+        path: '/fleet/alerts/al1/ack',
+        reply: () => {
+          acked = true
+          return {}
+        },
+      },
+    ])
+    render(<App />)
+    await go('#/alerts')
+    await screen.findAllByText('Not connected')
+    fireEvent.keyDown(window, { key: 'j' })
+    const rows = document.querySelectorAll('main [data-nav]')
+    expect(rows[0]!.hasAttribute('data-nav-active')).toBe(true)
+    fireEvent.keyDown(window, { key: 'a' })
+    await waitFor(() => expect(server.calls.some((c) => c.path === '/fleet/alerts/al1/ack')).toBe(true))
+    await go('#/alerts?state=all')
+    await screen.findAllByText('Not connected')
+    fireEvent.keyDown(window, { key: 'j' })
+    fireEvent.keyDown(window, { key: 'j' })
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(window.location.hash).toMatch(/^#\/(shops|tills)\//))
+  })
+})
+
+describe('status bar', () => {
+  it('shows the fleet pulse on every page and links into the filtered list', async () => {
+    signedIn()
+    fakeServer([...shellRoutes, { path: '/fleet/devices', reply: { devices: [], total: 0, limit: 200, offset: 0 } }, { path: '/fleet/alerts', reply: { alerts: [] } }])
+    render(<App />)
+    const bar = await screen.findByRole('region', { name: 'Fleet status' })
+    await within(bar).findByText(/1 offline/)
+    expect(within(bar).getByText(/1 offline/).closest('a')!.getAttribute('href')).toBe('#/tills?state=offline')
+  })
+})
+
+describe('receiving serial-numbered stock', () => {
+  it('needs one serial per piece before sending', async () => {
+    signedIn('operator')
+    const shop = { id: 's1', name: 'Adum Electronics', code: 'AE', location: null, phone: null, currency: 'GHS', createdAt: '2026-10-01T00:00:00Z', owner: null, activated: true, hasLiveClaimCode: false, claimCodeExpiresAt: null, health: { healthy: 0, attention: 0, offline: 0 }, machines: [] }
+    const product = { id: 'p1', name: 'Tecno Spark', category: 'Phones', barcode: null, costPrice: 900, sellingPrice: 1200, stock: 2, expiredStock: 0, sold: 0, reorderLevel: null, packLabel: null, unitsPerPack: null, expiryDate: '', hidden: false, status: 'ok', trackSerials: true, soldBy: null }
+    const server = fakeServer([
+      ...shellRoutes.map((r) => (r.path === '/api/stores' ? { ...r, reply: { shops: [shop] } } : r)),
+      { path: '/api/stores/s1/inventory', reply: { summary: { products: 1, lowStock: 0, outOfStock: 0, oversold: 0, hidden: 0, unitsOnHand: 2, expiredUnits: 0 }, categories: [], products: [product] } },
+      { method: 'POST', path: '/api/stores/s1/batches', reply: {} },
+    ])
+    render(<App />)
+    await go('#/shops/s1?tab=stock')
+    fireEvent.click(await screen.findByRole('button', { name: 'Receive' }))
+    fireEvent.change(screen.getByLabelText('How many arrived'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Serial numbers'), { target: { value: 'IMEI-1' } })
+    // happy-dom doesn't submit a form from a button inside <dialog>; submit it directly.
+    const form = screen.getByLabelText('Serial numbers').closest('form')!
+    fireEvent.submit(form)
+    expect(await screen.findByText(/2 needed, 1 entered/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Serial numbers'), { target: { value: 'IMEI-1\nIMEI-2' } })
+    fireEvent.submit(form)
+    await waitFor(() => expect(server.calls.find((c) => c.method === 'POST' && c.path.endsWith('/batches'))).toBeTruthy())
+    const body = server.calls.find((c) => c.path.endsWith('/batches'))!.body as { lines: { serials: string[]; stock: number }[] }
+    expect(body.lines[0]).toMatchObject({ stock: 2, serials: ['IMEI-1', 'IMEI-2'] })
+  })
+})

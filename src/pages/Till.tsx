@@ -18,7 +18,7 @@ import { invalidate, useAction } from '../lib/query.ts'
 import { href, shopHref } from '../lib/router.ts'
 import { useSession } from '../lib/session.tsx'
 import { ConfirmButton } from '../components/forms.tsx'
-import { Fortnight, Tags, Timeline, TillActions } from './till/TillExtras.tsx'
+import { Fortnight, Tags, Timeline, TillActions, TwoDays } from './till/TillExtras.tsx'
 
 export function Till({ id }: { id: string }) {
   const device = useDevice(id)
@@ -98,6 +98,7 @@ export function Till({ id }: { id: string }) {
           <Actions d={d} />
           <Notes id={d.deviceId} />
           <Tags d={d} />
+          <TwoDays d={d} />
           <Fortnight d={d} />
         </div>
       </div>

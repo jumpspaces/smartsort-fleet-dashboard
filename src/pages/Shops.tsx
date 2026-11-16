@@ -102,7 +102,7 @@ export function Shops({ params }: { params: URLSearchParams }) {
                   <Empty title={all.length ? 'No shops match' : 'No shops yet'} />
                 ) : (
                   <div className="table-wrap">
-                    <table className="table">
+                    <table className="table cards">
                       <thead>
                         <tr>
                           <th>Shop</th>
@@ -116,26 +116,27 @@ export function Shops({ params }: { params: URLSearchParams }) {
                         {list.map((s) => (
                           <tr
                             key={s.id}
+                            data-nav
                             className="link"
                             onClick={(e) => {
                               if ((e.target as HTMLElement).closest('a') || e.metaKey || e.ctrlKey) return
                               location.hash = shopHref(s.id)
                             }}
                           >
-                            <td className="primary-cell">
+                            <td data-label="" className="primary-cell">
                               <a href={shopHref(s.id)}>{s.name}</a>
                               <div className="small muted">
                                 {[s.code, s.location].filter(Boolean).join(' · ') || '—'}
                               </div>
                             </td>
-                            <td>
+                            <td data-label="Owner">
                               {s.owner?.name ?? <span className="muted">—</span>}
                               {s.phone && <div className="small muted">{s.phone}</div>}
                             </td>
-                            <td>
+                            <td data-label="Tills">
                               <TillHealth s={s} />
                             </td>
-                            <td>
+                            <td data-label="Set up">
                               {s.activated ? (
                                 <span className="sub">Yes</span>
                               ) : s.hasLiveClaimCode ? (
@@ -144,7 +145,7 @@ export function Shops({ params }: { params: URLSearchParams }) {
                                 <span className="badge attention">Waiting</span>
                               )}
                             </td>
-                            <td className="sub">
+                            <td data-label="Joined" className="sub">
                               <When iso={s.createdAt} />
                             </td>
                           </tr>

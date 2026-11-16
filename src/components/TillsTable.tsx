@@ -50,7 +50,7 @@ export function TillsTable({
 
   return (
     <div className="table-wrap">
-      <table className="table">
+      <table className="table cards">
         <thead>
           <tr>
             {head('Till')}
@@ -71,6 +71,7 @@ export function TillsTable({
             return (
               <tr
                 key={d.deviceId}
+                data-nav
                 className="link"
                 onClick={(e) => {
                   // Let inner links (the shop) and modified clicks behave normally.
@@ -78,7 +79,7 @@ export function TillsTable({
                   location.hash = tillHref(d.deviceId)
                 }}
               >
-                <td className="primary-cell">
+                <td data-label="" className="primary-cell">
                   <a href={tillHref(d.deviceId)}>{tillName(d)}</a>
                   {top && d.state !== 'healthy' && (
                     <div className="small sub" title={top.label}>
@@ -88,7 +89,7 @@ export function TillsTable({
                   )}
                 </td>
                 {!hideShop && (
-                  <td>
+                  <td data-label="Shop">
                     {d.shopId ? (
                       <a href={shopHref(d.shopId)} className="sub">
                         {d.shopName ?? 'Unnamed shop'}
@@ -98,16 +99,16 @@ export function TillsTable({
                     )}
                   </td>
                 )}
-                <td>
+                <td data-label="Status">
                   <StateBadge state={d.state} muted={!!d.mute} />
                 </td>
-                <td>
+                <td data-label="Last 24 hours">
                   <Strip strip={stripById.get(d.deviceId)} />
                 </td>
-                <td className={`r num${unsent ? '' : ' muted'}`}>
+                <td data-label="Unsent sales" className={`r num${unsent ? '' : ' muted'}`}>
                   {d.syncPending == null ? '—' : count(unsent)}
                 </td>
-                <td className="r num nowrap">
+                <td data-label="Sales today" className="r num nowrap">
                   {d.salesTodayPesewas == null ? (
                     <span className="muted">—</span>
                   ) : (
@@ -117,8 +118,8 @@ export function TillsTable({
                     </>
                   )}
                 </td>
-                <td className="mono">{d.appVersion ?? '—'}</td>
-                <td className="sub">
+                <td data-label="Version" className="mono">{d.appVersion ?? '—'}</td>
+                <td data-label="Last seen" className="sub">
                   <When iso={d.lastReportAt} />
                 </td>
               </tr>

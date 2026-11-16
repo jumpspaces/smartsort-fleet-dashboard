@@ -144,6 +144,9 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
 const KEYS: [string, string][] = [
   ['⌘ K  /  Ctrl K', 'Go to a page, shop or till'],
   ['/', 'Search this page'],
+  ['j  /  k', 'Next / previous row'],
+  ['Enter', 'Open the picked row'],
+  ['a', 'Take the picked alert (“I’m on it”)'],
   ['?', 'Show these keys'],
   ['Esc', 'Close a window'],
 ]

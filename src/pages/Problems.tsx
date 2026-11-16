@@ -110,7 +110,7 @@ export function Problems({ params }: { params: URLSearchParams }) {
                     </thead>
                     <tbody>
                       {p.groups.map((g) => (
-                        <tr key={g.id} className="link" onClick={() => (location.hash = problemHref(g.fingerprint))}>
+                        <tr key={g.id} data-nav className="link" onClick={() => (location.hash = problemHref(g.fingerprint))}>
                           <td className="primary-cell" style={{ maxWidth: 520 }}>
                             <a href={problemHref(g.fingerprint)} style={{ overflowWrap: 'anywhere' }}>
                               {g.message}
