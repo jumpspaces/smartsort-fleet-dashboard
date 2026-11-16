@@ -276,7 +276,7 @@ textarea {
   .brand {
     padding: 0 8px 0 0;
   }
-  .brand > span:last-child,
+  .nav .brand > span:last-child,
   .nav-label-text {
     display: none;
   }
@@ -905,34 +905,181 @@ a.stat:hover {
 .login {
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: 24px 16px;
+  grid-template-columns: minmax(380px, 5fr) 7fr;
+  background: var(--surface);
 }
-.login-card {
-  width: 100%;
-  max-width: 380px;
-  padding: 28px;
+
+/* The brand side is ink in both themes — a fixed dark panel, not a theme. */
+.login-brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  padding: 40px 48px;
+  background: #141416;
+  color: #f0f0f2;
+  overflow: hidden;
+  /* In dark mode the panel and the page are close; a hairline keeps them apart. */
+  border-right: 1px solid var(--line);
 }
-.login-card h1 {
-  font-size: 20px;
+.login-brand .brand {
+  padding: 0;
+}
+.login-brand .brand-mark {
+  background: #f0f0f2;
+  color: #141416;
+}
+.login-brand .brand small {
+  color: #8d8d95;
+}
+.login-pitch {
+  position: relative;
+  z-index: 1;
+  max-width: 400px;
+}
+.login-pitch h2 {
+  font-size: 30px;
+  line-height: 1.15;
   font-weight: 650;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
 }
-.login-card form {
+.login-pitch p {
+  margin-top: 12px;
+  color: #a8a8b0;
+  font-size: 15px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.till-grid {
   display: grid;
-  gap: 14px;
-  margin-top: 20px;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 8px;
+  max-width: 400px;
+  opacity: 0.9;
 }
-.login-card .btn {
-  height: 40px;
+.till-grid span {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: #3a3a40;
 }
-details.server summary {
-  cursor: pointer;
-  color: var(--ink-3);
+.till-grid .on {
+  background: #5a5a62;
+}
+.till-grid .dim {
+  background: #2c2c31;
+}
+.till-grid .gap {
+  background: transparent;
+  border: 1px dashed #3a3a40;
+}
+.till-grid .ring {
+  background: transparent;
+  border: 2px solid #d8d8de;
+  border-radius: 50%;
+}
+
+.login-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 48px 24px;
+}
+.login-brand-compact {
+  display: none;
+}
+.login-form {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+.login-form h1 {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.login-form header p {
+  margin-top: 4px;
+}
+.login-form .field .input {
+  height: 42px;
+  font-size: 15px;
+}
+.login-submit {
+  height: 44px;
+  font-size: 15px;
+}
+.login-server {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.login-help {
+  display: grid;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--ink-2);
   font-size: 12.5px;
+  font-weight: 550;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
-details.server[open] summary {
-  margin-bottom: 8px;
+.link-btn:hover {
+  color: var(--ink);
+}
+
+/* Reachability is a state, so it may use the state colours. */
+.reach {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--idle);
+}
+.reach.ok {
+  background: var(--ok);
+}
+.reach.down {
+  background: var(--bad);
+  border-radius: 1px;
+}
+.reach.checking {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@media (max-width: 860px) {
+  .login {
+    grid-template-columns: 1fr;
+  }
+  .login-brand {
+    display: none;
+  }
+  .login-brand-compact {
+    display: flex;
+    max-width: 360px;
+    width: 100%;
+    margin: 0 auto 32px;
+    padding: 0;
+  }
+  .login-panel {
+    justify-content: flex-start;
+    padding: 32px 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reach.checking {
+    animation: none;
+  }
 }
 
 pre.stack {

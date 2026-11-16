@@ -330,3 +330,31 @@ describe('Shop machines', () => {
     await waitFor(() => expect(server.calls.some((c) => c.method === 'POST' && c.path.endsWith('/remove'))).toBe(true))
   })
 })
+
+describe('sign-in page', () => {
+  it('remembers a returning operator: server collapsed, email filled, password focused', async () => {
+    localStorage.setItem('fleet_api_base', 'https://cloud.test')
+    localStorage.setItem('fleet_last_email', 'ama@x.co')
+    fakeServer([{ path: '/health', reply: { ok: true } }])
+    render(<App />)
+    expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('ama@x.co')
+    expect(document.activeElement?.id).toBe('password')
+    expect(screen.queryByLabelText('Server address')).toBeNull()
+    expect(await screen.findByText(/Reachable/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Change server' }))
+    expect((screen.getByLabelText('Server address') as HTMLInputElement).value).toBe('https://cloud.test')
+  })
+
+  it('shows and hides the password, and says what is missing instead of greying the button', async () => {
+    fakeServer([])
+    render(<App />)
+    const pw = screen.getByLabelText('Password') as HTMLInputElement
+    expect(pw.type).toBe('password')
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }))
+    expect(pw.type).toBe('text')
+    const submit = screen.getByRole('button', { name: 'Sign in' }) as HTMLButtonElement
+    expect(submit.disabled).toBe(false)
+    fireEvent.click(submit)
+    expect(await screen.findByText('Enter your email.')).toBeTruthy()
+  })
+})
