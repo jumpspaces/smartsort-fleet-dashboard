@@ -18,6 +18,18 @@ const STATUS: Record<StockStatus, { label: string; tone: string }> = {
   oversold: { label: 'Oversold', tone: 'offline' },
 }
 
+/**
+ * A quantity as the shelf reads it. Weighed products keep thousandths (2500 =
+ * 2.5 kg), so they're scaled back; pieces are whole numbers.
+ */
+export function qty(n: number, soldBy?: string | null): string {
+  if (!soldBy) return count(n)
+  const abs = Math.abs(n)
+  const whole = Math.floor(abs / 1000)
+  const frac = String(abs % 1000).padStart(3, '0').replace(/0+$/, '')
+  return `${n < 0 ? '-' : ''}${whole.toLocaleString('en-US')}${frac ? `.${frac}` : ''} ${soldBy}`
+}
+
 /** dd/mm/yyyy, the format the shop's own forms and importer use. */
 const ddmmyyyy = (iso: string) => {
   const [y, m, d] = iso.split('-')
@@ -128,11 +140,15 @@ export function Inventory({ shop }: { shop: Shop }) {
                               {p.category}
                               {p.barcode && ` · ${p.barcode}`}
                               {p.hidden && ' · hidden'}
+                              {p.trackSerials && ' · serial numbers'}
+                              {p.soldBy && ` · by the ${p.soldBy}`}
                             </div>
                           </td>
                           <td className="r num">
-                            {count(p.stock)}
-                            {p.expiredStock > 0 && <div className="small" style={{ color: 'var(--warn)' }}>+{count(p.expiredStock)} expired</div>}
+                            {qty(p.stock, p.soldBy)}
+                            {p.expiredStock > 0 && (
+                              <div className="small" style={{ color: 'var(--warn)' }}>+{qty(p.expiredStock, p.soldBy)} expired</div>
+                            )}
                           </td>
                           <td className="r num nowrap">{price(p.costPrice, shop.currency)}</td>
                           <td className="r num nowrap">{price(p.sellingPrice, shop.currency)}</td>
@@ -441,21 +457,38 @@ function ReceiveDialog({ shop, product, onClose }: { shop: Shop; product: ShopPr
 function ReceiveForm({ shop, product, onDone }: { shop: Shop; product: ShopProduct; onDone: () => void }) {
   const { client } = useSession()
   const packs = (product.unitsPerPack ?? 0) > 1
-  const [qty, setQty] = useState('')
+  const [qtyText, setQty] = useState('')
   const [unit, setUnit] = useState<'piece' | 'pack'>('piece')
   const [cost, setCost] = useState(product.costPrice ? String(product.costPrice) : '')
   const [expiry, setExpiry] = useState('')
   const [supplier, setSupplier] = useState('')
+  const [serialText, setSerialText] = useState('')
+  const serials = serialText.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean)
+  const weighed = !!product.soldBy
   const save = useAction(async () => {
-    const n = Number(qty)
-    if (!Number.isInteger(n) || n <= 0) throw new Error('Enter how many arrived — a whole number above zero.')
+    const amount = Number(qtyText)
+    let n: number
+    if (weighed) {
+      // Thousandths on the wire: 2.5 kg is 2500.
+      n = Math.round(amount * 1000)
+      if (!Number.isFinite(amount) || n <= 0) throw new Error(`Enter how much arrived, in ${product.soldBy}.`)
+    } else {
+      n = amount
+      if (!Number.isInteger(n) || n <= 0) throw new Error('Enter how many arrived — a whole number above zero.')
+    }
+    if (product.trackSerials) {
+      const pieces = unit === 'pack' ? n * (product.unitsPerPack ?? 1) : n
+      if (serials.length !== pieces) throw new Error(`Enter one serial number per piece: ${pieces} needed, ${serials.length} entered.`)
+      if (new Set(serials).size !== serials.length) throw new Error('The same serial number is entered twice.')
+    }
     await api.receiveStock(client, shop.id, {
       supplier: supplier.trim() || undefined,
       lines: [
         {
           productId: product.id,
           stock: n,
-          unit,
+          unit: weighed ? undefined : unit,
+          serials: product.trackSerials ? serials : undefined,
           // Per piece, or per pack when receiving packs: the server divides it down.
           costPrice: Number(cost) || 0,
           sellingPrice: product.sellingPrice,
@@ -475,14 +508,24 @@ function ReceiveForm({ shop, product, onDone }: { shop: Shop; product: ShopProdu
       }}
     >
       <div className="small sub">
-        On hand now: {count(product.stock)}
+        On hand now: {qty(product.stock, product.soldBy)}
         {packs && ` · ${product.packLabel ?? 'pack'} of ${product.unitsPerPack}`}
       </div>
       <div className="form-grid">
-        <Field label="How many arrived" id="rq">
-          <input id="rq" className="input" type="number" min={1} step={1} required autoFocus value={qty} onChange={(e) => setQty(e.target.value)} />
+        <Field label={weighed ? `How much arrived (${product.soldBy})` : 'How many arrived'} id="rq">
+          <input
+            id="rq"
+            className="input"
+            type="number"
+            min={weighed ? 0.001 : 1}
+            step={weighed ? 0.001 : 1}
+            required
+            autoFocus
+            value={qtyText}
+            onChange={(e) => setQty(e.target.value)}
+          />
         </Field>
-        {packs && (
+        {packs && !weighed && (
           <Field label="Counted in" id="ru">
             <select id="ru" className="select" value={unit} onChange={(e) => setUnit(e.target.value as 'piece' | 'pack')}>
               <option value="piece">Pieces</option>
@@ -490,7 +533,7 @@ function ReceiveForm({ shop, product, onDone }: { shop: Shop; product: ShopProdu
             </select>
           </Field>
         )}
-        <Field label={`Cost each ${unit === 'pack' ? 'pack' : 'piece'} (${shop.currency})`} id="rc">
+        <Field label={`Cost per ${weighed ? product.soldBy : unit === 'pack' ? 'pack' : 'piece'} (${shop.currency})`} id="rc">
           <input id="rc" className="input" type="number" min={0} step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
         </Field>
         <Field label="Expiry (optional)" id="re">
@@ -500,6 +543,15 @@ function ReceiveForm({ shop, product, onDone }: { shop: Shop; product: ShopProdu
           <input id="rs" className="input" value={supplier} onChange={(e) => setSupplier(e.target.value)} />
         </Field>
       </div>
+      {product.trackSerials && (
+        <Field
+          label="Serial numbers"
+          id="rsn"
+          hint={`One per piece, one per line (or comma-separated). ${serials.length} entered.`}
+        >
+          <textarea id="rsn" className="textarea mono" rows={4} value={serialText} onChange={(e) => setSerialText(e.target.value)} />
+        </Field>
+      )}
       <ActionError error={save.error} />
       <div className="form-actions">
         <button type="button" className="btn" onClick={onDone}>

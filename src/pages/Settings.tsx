@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import * as api from '../api/endpoints.ts'
+import { HttpError } from '../api/client.ts'
 import type { Channel, ChannelKind, FleetConfig, Role, Thresholds } from '../api/types.ts'
 import { ActionError, ConfirmButton, Dialog, Field, Toggle } from '../components/forms.tsx'
 import { describeRule, LimitsEditor } from '../components/LimitsEditor.tsx'
@@ -1120,6 +1121,7 @@ function Festive() {
   const { client, canAct } = useSession()
   const [year, setYear] = useState(new Date().getFullYear())
   const h = useApi('holidays', (c, s) => api.holidays(c, s))
+  const missing = h.error instanceof HttpError && h.error.status === 404
   const [editing, setEditing] = useState<{ season: string; day: string } | null>(null)
   const act = useAction(async (fn: () => Promise<unknown>) => {
     await fn()
@@ -1148,6 +1150,13 @@ function Festive() {
       }
     >
       <ActionError error={act.error} />
+      {missing ? (
+        <div style={{ padding: 16 }}>
+          <div className="notice warn">
+            This server doesn’t have the festive-day calendar yet. Deploy the latest server and this tab will fill in.
+          </div>
+        </div>
+      ) : (
       <Loadable q={h} rows={8}>
         {(d) => (
           <>
@@ -1210,6 +1219,7 @@ function Festive() {
           </>
         )}
       </Loadable>
+      )}
     </Card>
   )
 }

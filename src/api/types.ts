@@ -300,7 +300,21 @@ export interface DeviceDay {
   appVersion: string | null
 }
 
+/** One heartbeat as stored: what the till said about itself at that moment. */
+export interface HistoryBeat {
+  capturedAt: string
+  syncPending: number | null
+  syncFailed: number | null
+  oldestPendingAgeMs: number | null
+  salesTodayCount: number | null
+  salesTodayPesewas: number | null
+  appVersion: string | null
+  serverHealthy: boolean | null
+  errorGroups: number
+}
+
 export interface DeviceHistory {
+  beats: HistoryBeat[]
   days: DeviceDay[]
   uptimeBps: number | null
 }
@@ -850,6 +864,10 @@ export interface ShopProduct {
   expiryDate: string
   hidden: boolean
   status: StockStatus
+  /** Each piece carries a serial number; receiving needs one per piece. */
+  trackSerials?: boolean
+  /** "kg" / "l" / "m" when sold by weight — then every quantity is in thousandths. */
+  soldBy?: string | null
 }
 
 export interface ShopInventory {
@@ -891,5 +909,13 @@ export interface NewProductInput {
 export interface ReceiveStockInput {
   supplier?: string
   invoiceNumber?: string
-  lines: { productId: string; costPrice: number; sellingPrice: number; stock: number; unit?: 'pack' | 'piece'; expiryDate?: string }[]
+  lines: {
+    productId: string
+    costPrice: number
+    sellingPrice: number
+    stock: number
+    unit?: 'pack' | 'piece'
+    expiryDate?: string
+    serials?: string[]
+  }[]
 }

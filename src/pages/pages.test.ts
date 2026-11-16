@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Device } from '../api/types.ts'
-import { byProblem } from './Home.tsx'
+import { byProblem, groupByShop } from './Home.tsx'
 import { queryFromParams } from './Tills.tsx'
 
 const till = (id: string, state: Device['state'], code: string | null, last: string) =>
@@ -26,5 +26,26 @@ describe('Tills filters from the URL', () => {
     expect(q).toMatchObject({ state: 'offline', version: '2.3.1', platform: 'win32', tag: 'pilot', muted: 'unmuted', includeRemoved: true, sort: 'sales', dir: 'asc' })
     const junk = queryFromParams(new URLSearchParams('state=bogus&sort=nope&muted=maybe&dir=up'))
     expect(junk).toMatchObject({ state: 'all', sort: undefined, muted: undefined, dir: undefined, includeRemoved: false })
+  })
+})
+
+describe('Home shop groups', () => {
+  it('keeps unlinked tills apart by the shop name they report', () => {
+    const t = (id: string, shopId: string | null, shopName: string | null, state: Device['state'] = 'offline') =>
+      ({ deviceId: id, shopId, shopName, state }) as Device
+    const groups = groupByShop([
+      t('a', null, 'Kumasi Mart'),
+      t('b', null, 'Osu Pharmacy'),
+      t('c', null, 'Osu Pharmacy'),
+      t('d', 's1', 'Tema Fresh', 'attention'),
+      t('e', null, null),
+    ])
+    expect(groups.map((g) => [g.name, g.tills.length])).toEqual([
+      ['Osu Pharmacy', 2],
+      ['Kumasi Mart', 1],
+      ['Not linked to a shop', 1],
+      ['Tema Fresh', 1],
+    ])
+    expect(new Set(groups.map((g) => g.key)).size).toBe(groups.length)
   })
 })

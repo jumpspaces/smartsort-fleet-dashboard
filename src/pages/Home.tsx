@@ -8,6 +8,9 @@ import { useAlerts, useAssistantOn, useDevices, useOverview } from '../data.ts'
 import { useAction } from '../lib/query.ts'
 import { useSession } from '../lib/session.tsx'
 import { BriefView } from './shop/ShopAssistant.tsx'
+import { previousVisit } from '../lib/visit.ts'
+import type { Alert } from '../api/types.ts'
+import { duration } from '../lib/format.ts'
 import { count, pct, plural } from '../lib/format.ts'
 import { reasonPlain, rulePlain, tillName } from '../lib/plain.ts'
 import { href, shopHref, tillHref } from '../lib/router.ts'
@@ -78,6 +81,7 @@ export function Home() {
         }}
       </Loadable>
 
+      <SinceLastVisit />
       <HealthBrief />
 
       <div className="grid-2">
@@ -123,7 +127,7 @@ export function Home() {
                     const p = rulePlain(a.ruleKey, a.title)
                     const target = a.deviceId ? tillHref(a.deviceId) : a.shopId ? shopHref(a.shopId) : href('/alerts')
                     return (
-                      <li key={a.id}>
+                      <li key={a.id} data-nav>
                         <a className="item" href={target}>
                           <div className="spread">
                             <span className="issue-title">
@@ -152,25 +156,12 @@ function ProblemList({ devices }: { devices: Device[] }) {
   if (devices.length === 0) {
     return <Empty title="Every till is working">Nothing needs a look right now.</Empty>
   }
-  const byShop = new Map<string, { name: string; shopId: string | null; tills: Device[] }>()
-  for (const d of devices) {
-    const k = d.shopId ?? '—'
-    const g = byShop.get(k) ?? { name: d.shopName ?? 'Not linked to a shop', shopId: d.shopId, tills: [] }
-    g.tills.push(d)
-    byShop.set(k, g)
-  }
-  // Shops with something offline first, then by how many tills are affected.
-  const groups = [...byShop.values()].sort(
-    (a, b) =>
-      Number(b.tills.some((t) => t.state === 'offline')) - Number(a.tills.some((t) => t.state === 'offline')) ||
-      b.tills.length - a.tills.length ||
-      a.name.localeCompare(b.name),
-  )
+  const groups = groupByShop(devices)
 
   return (
     <ul className="list">
       {groups.map((g) => (
-        <li key={g.shopId ?? 'none'}>
+        <li key={g.key}>
           <div className="spread" style={{ marginBottom: 8 }}>
             {g.shopId ? (
               <a href={shopHref(g.shopId)} style={{ fontWeight: 600, textDecoration: 'none' }}>
@@ -183,7 +174,7 @@ function ProblemList({ devices }: { devices: Device[] }) {
           </div>
           <div className="stack" style={{ gap: 10 }}>
             {byProblem(g.tills).map((p) => (
-              <div key={p.key}>
+              <div key={p.key} data-nav className="nav-row">
                 <div className="row" style={{ justifyContent: 'space-between' }}>
                   <span className="row" style={{ gap: 8 }}>
                     <StateBadge state={p.state} />
@@ -265,4 +256,81 @@ export function byProblem(tills: Device[]) {
     }
   }
   return [...groups.values()].sort((a, b) => Number(b.state === 'offline') - Number(a.state === 'offline'))
+}
+
+/** What changed while this person was away: opened, cleared, still open. */
+export function awaySummary(alerts: Alert[], since: number) {
+  const after = (iso: string | null) => !!iso && Date.parse(iso) > since
+  const opened = alerts.filter((a) => after(a.openedAt))
+  const cleared = alerts.filter((a) => after(a.resolvedAt))
+  const stillOpen = opened.filter((a) => a.state !== 'resolved')
+  return { opened, cleared, stillOpen }
+}
+
+const AWAY_MIN_MS = 15 * 60_000
+
+function SinceLastVisit() {
+  const { session } = useSession()
+  const since = previousVisit(session.operator.id)
+  const all = useAlerts('all')
+  const [hidden, setHidden] = useState(false)
+  if (hidden || since == null || Date.now() - since < AWAY_MIN_MS || !all.data) return null
+  const { opened, cleared, stillOpen } = awaySummary(all.data, since)
+  if (opened.length === 0 && cleared.length === 0) return null
+  return (
+    <Card
+      title={`Since you were last here, ${duration(Date.now() - since)} ago`}
+      sub={`${plural(opened.length, 'alert')} opened · ${count(cleared.length)} cleared · ${count(stillOpen.length)} still open`}
+      actions={
+        <button className="btn sm ghost" onClick={() => setHidden(true)}>
+          Got it
+        </button>
+      }
+      flush
+    >
+      <ul className="list">
+        {[...stillOpen, ...cleared.filter((c) => !stillOpen.includes(c))].slice(0, 6).map((a) => {
+          const p = rulePlain(a.ruleKey, a.title)
+          const target = a.deviceId ? tillHref(a.deviceId) : a.shopId ? shopHref(a.shopId) : href('/alerts')
+          return (
+            <li key={a.id} data-nav>
+              <a className="item" href={target}>
+                <div className="spread">
+                  <span className="row" style={{ gap: 8 }}>
+                    <span className={`badge ${a.state === 'resolved' ? 'healthy' : a.severity === 'critical' ? 'offline' : 'attention'}`}>
+                      {a.state === 'resolved' ? 'Cleared' : 'Still open'}
+                    </span>
+                    <span className="issue-title">{p.title}</span>
+                  </span>
+                  <span className="small muted">{a.shopName ?? 'Fleet-wide'}</span>
+                </div>
+              </a>
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
+  )
+}
+
+/**
+ * Problem tills by shop — a shop is who you call. Shops with something offline
+ * first, then by how many tills are affected.
+ */
+export function groupByShop(devices: Device[]) {
+  const byShop = new Map<string, { key: string; name: string; shopId: string | null; tills: Device[] }>()
+  for (const d of devices) {
+    // A till not yet linked has no shop id, only the name it reports; group by
+    // that, or every unlinked till in the fleet lands in one "shop".
+    const key = d.shopId ?? (d.shopName ? `name:${d.shopName}` : '—')
+    const g = byShop.get(key) ?? { key, name: d.shopName ?? 'Not linked to a shop', shopId: d.shopId, tills: [] }
+    g.tills.push(d)
+    byShop.set(key, g)
+  }
+  return [...byShop.values()].sort(
+    (a, b) =>
+      Number(b.tills.some((t) => t.state === 'offline')) - Number(a.tills.some((t) => t.state === 'offline')) ||
+      b.tills.length - a.tills.length ||
+      a.name.localeCompare(b.name),
+  )
 }
