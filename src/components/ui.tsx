@@ -1,236 +1,228 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Icon, type IconName } from './Icon.tsx'
+import type { ReactNode } from 'react'
+import type { FleetState, HeartbeatStrip } from '../api/types.ts'
+import { Unauthorized } from '../api/client.ts'
+import { ago, exact } from '../lib/format.ts'
+import { STATE_LABEL } from '../lib/plain.ts'
+import { Icon } from './Icon.tsx'
 
-export type Tone = 'ok' | 'warn' | 'bad' | 'idle'
-
-/* ------------------------------------------------------------------ button */
-
-type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'default' | 'primary' | 'ghost' | 'danger'
-  size?: 'sm' | 'md'
-  busy?: boolean
-  /** Shown in place of the label while `busy`; keeps the button's own width. */
-  busyLabel?: string
-}
-
-export function Button({
-  variant = 'default',
-  size = 'md',
-  busy = false,
-  busyLabel,
-  children,
-  className,
-  disabled,
-  ...rest
-}: ButtonProps) {
-  const classes = [
-    'btn',
-    variant !== 'default' && `btn-${variant}`,
-    size === 'sm' && 'btn-sm',
-    className,
-  ]
-    .filter(Boolean)
-    .join(' ')
-
-  return (
-    <button
-      className={classes}
-      disabled={disabled || busy}
-      data-busy={busy || undefined}
-      {...rest}
-    >
-      {busy && <span className="spinner" aria-hidden="true" />}
-      {busy ? (busyLabel ?? children) : children}
-    </button>
-  )
-}
-
-/* -------------------------------------------------------------- status marks */
-
-/** Dot + word. Never the dot alone — hue must not be the only carrier. */
-export function Status({ tone, label }: { tone: Tone; label: string }) {
-  return (
-    <span className="status" data-tone={tone}>
-      <span className="dot" data-tone={tone} />
-      {label}
-    </span>
-  )
-}
-
-export function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return (
-    <span className="chip" data-tone={tone}>
-      {children}
-    </span>
-  )
-}
-
-/* ------------------------------------------------------------------- states */
-
-export function Notice({ children }: { children: ReactNode }) {
-  return (
-    <div className="notice" role="alert">
-      <Icon name="alert" />
-      <span>{children}</span>
-    </div>
-  )
-}
-
-export function Empty({
-  icon = 'inbox',
+export function PageHeader({
   title,
-  children,
-  action,
+  sub,
+  back,
+  actions,
 }: {
-  icon?: IconName
-  title: string
-  children?: ReactNode
-  action?: ReactNode
+  title: ReactNode
+  sub?: ReactNode
+  back?: { href: string; label: string }
+  actions?: ReactNode
 }) {
   return (
+    <header>
+      {back && (
+        <a className="crumb" href={back.href}>
+          <Icon name="back" size={14} />
+          {back.label}
+        </a>
+      )}
+      <div className="page-head">
+        <div>
+          <h1>{title}</h1>
+          {sub && <p>{sub}</p>}
+        </div>
+        {actions && <div className="row">{actions}</div>}
+      </div>
+    </header>
+  )
+}
+
+export function Card({
+  title,
+  sub,
+  actions,
+  flush,
+  children,
+}: {
+  title?: ReactNode
+  sub?: ReactNode
+  actions?: ReactNode
+  flush?: boolean
+  children: ReactNode
+}) {
+  return (
+    <section className="card">
+      {(title || actions) && (
+        <div className="card-head">
+          <div>
+            {title && <h2>{title}</h2>}
+            {sub && <div className="sub">{sub}</div>}
+          </div>
+          {actions && <div className="row">{actions}</div>}
+        </div>
+      )}
+      <div className={flush ? 'card-body flush' : 'card-body'}>{children}</div>
+    </section>
+  )
+}
+
+export function StateBadge({ state, muted }: { state: FleetState; muted?: boolean }) {
+  return (
+    <span className={`badge ${state}`} title={muted ? 'Alerts are muted for this till' : undefined}>
+      {STATE_LABEL[state]}
+      {muted ? ' · muted' : ''}
+    </span>
+  )
+}
+
+export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+  return (
     <div className="empty">
-      <span className="empty-glyph">
-        <Icon name={icon} size={18} />
-      </span>
-      <div className="empty-title">{title}</div>
-      {children && <p>{children}</p>}
-      {action && <div style={{ marginTop: 10 }}>{action}</div>}
+      <strong>{title}</strong>
+      {children}
     </div>
   )
 }
 
-/** Table-shaped skeleton, so the layout doesn't jump when rows land. */
-export function TableSkeleton({ rows = 5 }: { rows?: number }) {
+export function ErrorNote({ error, onRetry }: { error: Error; onRetry?: () => void }) {
+  // An expired session is handled by bouncing to sign-in; no point shouting.
+  if (error instanceof Unauthorized) return null
   return (
-    <div className="skeleton-rows" aria-hidden="true">
+    <div className="notice" role="alert">
+      <span style={{ flex: 1 }}>{error.message}</span>
+      {onRetry && (
+        <button className="btn sm" onClick={onRetry}>
+          Try again
+        </button>
+      )}
+    </div>
+  )
+}
+
+export function Skeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="stack" style={{ padding: 16, gap: 14 }} aria-busy="true" aria-label="Loading">
       {Array.from({ length: rows }, (_, i) => (
-        <div className="skeleton-row" key={i}>
-          <div className="skeleton" style={{ width: 74 }} />
-          <div className="skeleton" style={{ width: `${64 - i * 6}%` }} />
-          <div className="skeleton" style={{ width: '54%' }} />
-          <div className="skeleton" style={{ width: '38%' }} />
-          <div className="skeleton" style={{ width: '46%' }} />
-        </div>
+        <span key={i} className="skeleton" style={{ width: `${90 - ((i * 17) % 40)}%` }} />
       ))}
     </div>
   )
 }
 
-/* -------------------------------------------------------------------- copy */
-
-export function CopyButton({
-  value,
-  label = 'Copy',
-  size = 'sm',
-}: {
-  value: string
-  label?: string
-  size?: 'sm' | 'md'
-}) {
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<number | undefined>(undefined)
-
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      window.clearTimeout(timer.current)
-      timer.current = window.setTimeout(() => setCopied(false), 1800)
-    } catch {
-      // Clipboard is blocked on insecure origins; the value is selectable, so
-      // failing quietly beats an error the operator can do nothing about.
-      setCopied(false)
-    }
-  }
-
-  return (
-    <Button size={size} onClick={() => void copy()}>
-      <Icon name={copied ? 'check' : 'copy'} size={14} />
-      {copied ? 'Copied' : label}
-    </Button>
-  )
-}
-
-/* -------------------------------------------------------------- definition */
-
-export function KV({ k, v, title }: { k: string; v: ReactNode; title?: string }) {
-  return (
-    <div className="kv">
-      <dt>{k}</dt>
-      <dd title={title}>{v}</dd>
-    </div>
-  )
-}
-
-/* -------------------------------------------------------------------- page */
-
 /**
- * The head of a detail page: where you are, one level up, and what you can do
- * to it. The back link is a real control rather than a reliance on the browser's
- * — these pages are linked to directly from alerts, errors and chat messages, so
- * arriving with no history behind you is the normal case, not the edge one.
+ * Loading → error → content, in one place, so no page forgets a state.
+ * Cached data keeps showing through a failed refresh, with the error above it.
  */
-export function PageHead({
-  back,
-  title,
-  subtitle,
-  actions,
-}: {
-  back: { label: string; onClick: () => void }
-  title: ReactNode
-  subtitle?: ReactNode
-  actions?: ReactNode
-}) {
-  return (
-    <div className="view-head">
-      <div style={{ minWidth: 0 }}>
-        <button type="button" className="backlink" onClick={back.onClick}>
-          <Icon name="chevron" size={13} className="backlink-chev" />
-          {back.label}
-        </button>
-        <h1 className="view-title">{title}</h1>
-        {subtitle && <div className="view-sub">{subtitle}</div>}
-      </div>
-      {actions && <div className="head-actions">{actions}</div>}
-    </div>
-  )
-}
-
-/**
- * One titled block of a page. Detail used to live in a drawer where a rule under
- * a heading was enough separation; at full width the same sections need to be
- * distinct objects, or they read as one unbroken column of prose.
- */
-export function Card({
-  title,
-  actions,
+export function Loadable<T>({
+  q,
+  rows,
   children,
 }: {
-  /** Usually a string; a node when the title carries state of its own (a
-      rollout's version and where it has got to are one heading, not two). */
-  title: ReactNode
-  actions?: ReactNode
-  children: ReactNode
+  q: { data: T | undefined; error: Error | undefined; loading: boolean; reload: () => void }
+  rows?: number
+  children: (data: T) => ReactNode
 }) {
+  if (q.data === undefined) {
+    if (q.error)
+      return (
+        <div style={{ padding: 16 }}>
+          <ErrorNote error={q.error} onRetry={q.reload} />
+        </div>
+      )
+    return <Skeleton rows={rows} />
+  }
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2 className="panel-title">{title}</h2>
-        {actions}
-      </div>
-      <div className="panel-body">{children}</div>
-    </section>
+    <>
+      {q.error && (
+        <div style={{ padding: '12px 16px 0' }}>
+          <ErrorNote error={q.error} onRetry={q.reload} />
+        </div>
+      )}
+      {children(q.data)}
+    </>
   )
 }
 
-/** A detail page's two columns: the substance, and the reference material. */
-export function Columns({ main, side }: { main: ReactNode; side: ReactNode }) {
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+}: {
+  value: T
+  options: { value: T; label: string; n?: number }[]
+  onChange: (v: T) => void
+  label: string
+}) {
   return (
-    <div className="detail">
-      <div className="detail-col">{main}</div>
-      <div className="detail-col detail-side">{side}</div>
+    <div className="segmented" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
+          {o.label}
+          {o.n != null && <span className="n">{o.n}</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function Search({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+}) {
+  return (
+    <label className="search">
+      <Icon name="search" size={14} />
+      <span className="sr-only">{placeholder}</span>
+      <input
+        className="input"
+        type="search"
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  )
+}
+
+export function When({ iso }: { iso: string | null | undefined }) {
+  return (
+    <time className="nowrap" dateTime={iso ?? undefined} title={exact(iso)}>
+      {ago(iso)}
+    </time>
+  )
+}
+
+/** "Updated 12s ago", pulsing while a refresh is in flight. */
+export function Live({ updatedAt, busy }: { updatedAt: number; busy: boolean }) {
+  return (
+    <span className={busy ? 'live busy' : 'live'} aria-live="off">
+      {updatedAt ? `Updated ${ago(new Date(updatedAt).toISOString())}` : 'Loading'}
+    </span>
+  )
+}
+
+/**
+ * Liveness over the last day: one bar per bucket. Full = every expected
+ * heartbeat arrived, part = some did, none = the till was silent.
+ */
+export function Strip({ strip, large }: { strip: HeartbeatStrip | undefined; large?: boolean }) {
+  if (!strip) return <div className={large ? 'strip lg' : 'strip'} aria-hidden="true" />
+  const missed = strip.buckets.filter((b) => b === 0).length
+  return (
+    <div
+      className={large ? 'strip lg' : 'strip'}
+      role="img"
+      aria-label={missed ? `Silent for ${missed} of ${strip.buckets.length} periods` : 'Connected throughout'}
+    >
+      {strip.buckets.map((b, i) => {
+        const cls = b === 0 ? 'none' : b >= strip.expectedPerBucket * 0.8 ? 'full' : 'part'
+        const from = new Date(strip.fromMs + i * strip.bucketMs)
+        return <span key={i} className={cls} title={`${from.toLocaleString()}: ${b} of ${strip.expectedPerBucket} check-ins`} />
+      })}
     </div>
   )
 }

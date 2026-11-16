@@ -1,20 +1,34 @@
 /**
- * Display formatting. Everything here is read at a glance by someone deciding
- * whether to act, so the bias is toward short forms with the exact value kept
- * available in a `title` (see `exact`).
+ * Display formatting. Short forms for scanning; the exact value goes in a
+ * `title` via `exact()`.
  */
 
-/** Pesewas (integer) → GHS display. */
-export function cedis(pesewas: number): string {
-  return `GHS ${(pesewas / 100).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
+/**
+ * Integer minor units → "GHS 1,234.50", exact to the pesewa. Integer maths
+ * throughout so no float ever rounds a sale, and zero never reads "-0.00".
+ * The currency code is a label only — amounts are never converted.
+ */
+export function money(minor: number | null | undefined, currency = 'GHS'): string {
+  if (minor == null) return '—'
+  // Sign after the code, as the shop's own app writes it: "GHS -2.50".
+  return `${currency} ${decimal(minor, true)}`
+}
+
+/**
+ * Integer minor units → "-1234.50" (or grouped "1,234.50"), exact, by integer
+ * maths. For spreadsheets too: no float, no "-0.00".
+ */
+export function decimal(minor: number, grouped = false): string {
+  const abs = Math.abs(Math.trunc(minor))
+  const major = Math.floor(abs / 100)
+  const whole = grouped ? major.toLocaleString('en-US') : String(major)
+  const frac = String(abs % 100).padStart(2, '0')
+  return `${minor < 0 && abs !== 0 ? '-' : ''}${whole}.${frac}`
 }
 
 /** Compact duration: 45s, 12m, 6h, 3d. */
 export function duration(ms: number): string {
-  const s = Math.round(ms / 1000)
+  const s = Math.round(Math.abs(ms) / 1000)
   if (s < 60) return `${s}s`
   const m = Math.round(s / 60)
   if (m < 60) return `${m}m`
@@ -23,55 +37,40 @@ export function duration(ms: number): string {
   return `${Math.round(h / 24)}d`
 }
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const WEEK_MS = 7 * 24 * 3_600_000
 
-/**
- * "12m ago" up to a week, then an absolute date — past that point the relative
- * form stops carrying information anyone can act on.
- */
-export function timeAgo(iso: string | null | undefined): string {
+/** "12m ago" for the last week, a date after that. */
+export function ago(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return '—'
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return '—'
-  const diff = Date.now() - then
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return '—'
+  const diff = now - t
   if (diff < 45_000) return 'just now'
-  if (diff < 0) return 'just now'
-  if (diff > WEEK_MS) return shortDate(then)
+  if (diff > WEEK_MS) return date(iso)
   return `${duration(diff)} ago`
 }
 
-export function timeUntil(iso: string | null | undefined): string {
+export function until(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return '—'
-  const at = new Date(iso).getTime()
-  if (Number.isNaN(at)) return '—'
-  const diff = at - Date.now()
-  if (diff <= 0) return 'now'
-  return `in ${duration(diff)}`
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return '—'
+  return t <= now ? 'now' : `in ${duration(t - now)}`
 }
 
-/** Full timestamp for `title` attributes — the relative form's escape hatch. */
+export function date(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+/** Full local timestamp, for hover text. */
 export function exact(iso: string | null | undefined): string | undefined {
   if (!iso) return undefined
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString()
 }
 
-function shortDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
-/** Milliseconds since an ISO timestamp; Infinity when it can't be parsed. */
-export function ageMs(iso: string | null | undefined): number {
-  if (!iso) return Number.POSITIVE_INFINITY
-  const t = new Date(iso).getTime()
-  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : Date.now() - t
-}
-
-/** Bytes at the granularity a person reads: "1.4 GB", "380 MB". */
 export function bytes(n: number | null | undefined): string {
   if (n == null) return '—'
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`
@@ -80,32 +79,24 @@ export function bytes(n: number | null | undefined): string {
   return `${n} B`
 }
 
-/** Basis points → percent, as availability is written: 9987 → "99.87%". */
-export function bps(n: number | null | undefined, digits = 2): string {
-  if (n == null) return '—'
-  return `${(n / 100).toFixed(digits)}%`
+/** Basis points → "99.87%". */
+export function pct(bps: number | null | undefined, digits = 2): string {
+  if (bps == null) return '—'
+  return `${(bps / 100).toFixed(digits)}%`
 }
 
-/** Host portion of the API base, for the sidebar's connection line. */
-export function hostOf(base: string): string {
+export function count(n: number | null | undefined): string {
+  return n == null ? '—' : n.toLocaleString('en-US')
+}
+
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+}
+
+export function host(base: string): string {
   try {
     return new URL(base).host
   } catch {
-    return base.replace(/^https?:\/\//, '').replace(/\/+$/, '') || '—'
+    return base.replace(/^https?:\/\//, '').replace(/\/+$/, '')
   }
-}
-
-/**
- * An estimated dollar amount from micro-dollars (the assistant's spend):
- * "$0.0123" under a cent so small costs don't all read "$0.00", cents above.
- */
-export function usd(micros: number): string {
-  const dollars = micros / 1_000_000
-  if (dollars > 0 && dollars < 0.01) return `$${dollars.toFixed(4)}`
-  return `$${dollars.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-/** 12345 → "12.3k". */
-export function compactCount(n: number): string {
-  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }

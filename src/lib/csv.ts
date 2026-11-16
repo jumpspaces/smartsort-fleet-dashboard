@@ -1,27 +1,39 @@
-/** Minimal CSV export — a snapshot to hand to someone outside this console. */
-import { downloadBlob } from './download.ts'
+/**
+ * Lists as spreadsheets, for handing to someone outside the console.
+ */
 
-export interface CsvColumn<T> {
+export interface Column<T> {
   header: string
-  value: (row: T) => string | number | null | undefined
+  value: (row: T) => string | number | boolean | null | undefined
 }
 
-function escapeCell(v: unknown): string {
-  const s = v == null ? '' : String(v)
+/** RFC 4180: quote anything with a comma, quote or line break; double quotes. */
+function cell(v: string | number | boolean | null | undefined): string {
+  if (v == null) return ''
+  let s = String(v)
+  // A leading = + - @ makes Excel run the cell as a formula. Data from tills
+  // (error messages, names) is not ours to trust.
+  if (/^[=+\-@\t\r]/.test(s) && typeof v === 'string') s = `'${s}`
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-export function toCsv<T>(rows: T[], columns: CsvColumn<T>[]): string {
-  const lines = [columns.map((c) => escapeCell(c.header)).join(',')]
-  for (const row of rows) {
-    lines.push(columns.map((c) => escapeCell(c.value(row))).join(','))
-  }
-  // CRLF is the CSV spec's line ending, and the one Excel never second-guesses.
-  return lines.join('\r\n')
+export function toCsv<T>(rows: T[], columns: Column<T>[]): string {
+  const lines = [columns.map((c) => cell(c.header)).join(',')]
+  for (const r of rows) lines.push(columns.map((c) => cell(c.value(r))).join(','))
+  return lines.join('\r\n') + '\r\n'
 }
 
-export function downloadCsv(filename: string, csv: string): void {
-  // A leading BOM so Excel opens UTF-8 as UTF-8 instead of guessing Latin-1
-  // and mangling anything outside ASCII.
-  downloadBlob(filename, new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }))
+export function saveFile(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+/** A BOM so Excel opens UTF-8 (cedi signs, Twi names) correctly. */
+export function saveCsv<T>(name: string, rows: T[], columns: Column<T>[]) {
+  const stamp = new Date().toISOString().slice(0, 10)
+  saveFile(`${name}-${stamp}.csv`, new Blob(['﻿', toCsv(rows, columns)], { type: 'text/csv;charset=utf-8' }))
 }

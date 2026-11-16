@@ -1,618 +1,265 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  createApi,
-  type Api,
-  type Overview,
-  type Session,
-} from './api.ts'
+import { Component, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Palette, ShortcutHelp } from './components/Palette.tsx'
+import { isTyping } from './lib/match.ts'
+import { useDensity } from './lib/prefs.ts'
+import type { Session } from './api/types.ts'
 import { Icon, type IconName } from './components/Icon.tsx'
-import { Mark } from './components/Mark.tsx'
-import { Button } from './components/ui.tsx'
-import { duration, hostOf } from './lib/format.ts'
-import { pageName } from './lib/plain.ts'
-import { PARENT, useRoute, type View } from './lib/route.ts'
-import { useDensity } from './lib/density.ts'
-import { useTheme, type ThemePref } from './lib/theme.ts'
-import { Palette } from './components/Palette.tsx'
-import { Shortcuts } from './components/Shortcuts.tsx'
-import { Alerts } from './views/Alerts.tsx'
-import { Audit } from './views/Audit.tsx'
-import { Backups } from './views/Backups.tsx'
-import { Quality } from './views/Quality.tsx'
-import { Commands } from './views/Commands.tsx'
-import { Rollouts } from './views/Rollouts.tsx'
-import { Trends } from './views/Trends.tsx'
-import { Device } from './views/Device.tsx'
-import { ErrorGroup } from './views/ErrorGroup.tsx'
-import { Errors } from './views/Errors.tsx'
-import { Login } from './views/Login.tsx'
-import { Operators } from './views/Operators.tsx'
-import { Shop } from './views/Shop.tsx'
-import { Shops } from './views/Shops.tsx'
-import { Terminals } from './views/Terminals.tsx'
-import { Triage } from './views/Triage.tsx'
-
-const LS_SESSION = 'fleet_session'
-const LS_API = 'fleet_api'
-const REFRESH_MS = 30_000
-/** Past this, the live dot stops claiming the numbers are current. */
-const STALE_MS = REFRESH_MS * 3
-
-/** Default API base: build-time VITE_FLEET_API, else empty (typed at login). */
-const DEFAULT_API = (import.meta.env.VITE_FLEET_API as string | undefined) ?? ''
-
-export type { View } from './lib/route.ts'
-
-/**
- * Send someone to another view with a filter applied. Pushes a history entry,
- * so the link is shareable and Back returns where they came from.
- */
-export type Navigate = (
-  view: View,
-  params?: Record<string, string | undefined>,
-) => void
-
-function readSession(): Session | null {
-  try {
-    const raw = localStorage.getItem(LS_SESSION)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Session
-    return parsed.accessToken && parsed.apiBase ? parsed : null
-  } catch {
-    return null
-  }
-}
+import { useOverview } from './data.ts'
+import { host } from './lib/format.ts'
+import { clearCache } from './lib/query.ts'
+import { href, useLocation, type Route } from './lib/router.ts'
+import { loadSession, saveSession, SessionProvider, useSession } from './lib/session.tsx'
+import { useTheme, type Theme } from './lib/theme.ts'
+import { Alerts } from './pages/Alerts.tsx'
+import { Home } from './pages/Home.tsx'
+import { Login } from './pages/Login.tsx'
+import { Shop } from './pages/Shop.tsx'
+import { Shops } from './pages/Shops.tsx'
+import { Till } from './pages/Till.tsx'
+import { Tills } from './pages/Tills.tsx'
+import { Problem, Problems } from './pages/Problems.tsx'
+import { Activity, Backups, Fixes, History, Records } from './pages/Reports.tsx'
+import { Settings } from './pages/Settings.tsx'
+import { Update, Updates } from './pages/Updates.tsx'
 
 export function App() {
-  const [session, setSession] = useState<Session | null>(readSession)
+  const [session, setSession] = useState<Session | null>(loadSession)
+  const [expired, setExpired] = useState(false)
 
-  const onSignedIn = useCallback((s: Session) => {
-    localStorage.setItem(LS_SESSION, JSON.stringify(s))
-    localStorage.setItem(LS_API, s.apiBase)
-    setSession(s)
-  }, [])
-
-  const onSignOut = useCallback(() => {
-    localStorage.removeItem(LS_SESSION)
+  const end = useCallback((why: 'expired' | 'signout') => {
+    saveSession(null)
+    clearCache()
+    setExpired(why === 'expired')
     setSession(null)
   }, [])
+  const onExpired = useCallback(() => end('expired'), [end])
+  const onSignOut = useCallback(() => end('signout'), [end])
 
   if (!session) {
     return (
       <Login
-        apiBase={localStorage.getItem(LS_API) ?? DEFAULT_API}
-        onSignedIn={onSignedIn}
+        expired={expired}
+        onSignedIn={(s) => {
+          saveSession(s)
+          setExpired(false)
+          setSession(s)
+        }}
       />
     )
   }
-  return <Dashboard session={session} onRenewed={onSignedIn} onSignOut={onSignOut} />
+  return (
+    <SessionProvider session={session} onExpired={onExpired} onSignOut={onSignOut}>
+      <Shell />
+    </SessionProvider>
+  )
 }
 
-/* ---------------------------------------------------------------- dashboard */
+type Nav = { page: Route['page']; path: string; label: string; icon: IconName; also?: Route['page'] }
 
-function Dashboard({
-  session,
-  onRenewed,
-  onSignOut,
-}: {
-  session: Session
-  onRenewed: (s: Session) => void
-  onSignOut: () => void
-}) {
-  const { route, navigate, replace, back } = useRoute()
-  const view = route.view
-  const [overview, setOverview] = useState<Overview | null>(null)
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
+/** Daily work first, then looking back, then setup. */
+const NAV: { group: string | null; items: Nav[] }[] = [
+  {
+    group: null,
+    items: [
+      { page: 'home', path: '/', label: 'Home', icon: 'home' },
+      { page: 'alerts', path: '/alerts', label: 'Alerts', icon: 'bell' },
+      { page: 'tills', path: '/tills', label: 'Tills', icon: 'till', also: 'till' },
+      { page: 'shops', path: '/shops', label: 'Shops', icon: 'shop', also: 'shop' },
+    ],
+  },
+  {
+    group: 'Fixing',
+    items: [
+      { page: 'problems', path: '/problems', label: 'App problems', icon: 'bug', also: 'problem' },
+      { page: 'fixes', path: '/fixes', label: 'Remote fixes', icon: 'wrench' },
+      { page: 'updates', path: '/updates', label: 'Updates', icon: 'upload', also: 'update' },
+    ],
+  },
+  {
+    group: 'Looking back',
+    items: [
+      { page: 'history', path: '/history', label: 'History', icon: 'chart' },
+      { page: 'backups', path: '/backups', label: 'Backups', icon: 'disk' },
+      { page: 'records', path: '/records', label: 'Records check', icon: 'check' },
+      { page: 'activity', path: '/activity', label: 'Activity log', icon: 'list' },
+    ],
+  },
+  { group: null, items: [{ page: 'settings', path: '/settings', label: 'Settings', icon: 'gear' }] },
+]
 
-  // One API object for the life of the session. Rebuilt only if the operator
-  // signs in again, so views can hold it without re-fetching on every render.
-  const api = useMemo<Api>(
-    () =>
-      createApi(session, {
-        onRenewed,
-        onExpired: onSignOut,
-      }),
-    // The token inside `session` changes on refresh, but createApi keeps its own
-    // copy and updates it in place — rebuilding here would discard that.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [session.operator.id, session.apiBase],
-  )
+const NEXT_THEME: Record<Theme, Theme> = { system: 'light', light: 'dark', dark: 'system' }
+const THEME_ICON: Record<Theme, IconName> = { system: 'auto', light: 'sun', dark: 'moon' }
 
-  const refresh = useCallback(async () => {
-    setRefreshing(true)
-    try {
-      setOverview(await api.overview())
-      setUpdatedAt(Date.now())
-    } catch {
-      // The views surface their own load errors against the data they own; a
-      // failed KPI strip should not blank the page under it.
-    } finally {
-      setRefreshing(false)
-    }
-    setReloadKey((k) => k + 1)
-  }, [api])
+function Shell() {
+  const { route, params } = useLocation()
+  const { session, signOut } = useSession()
+  const [theme, setTheme] = useTheme()
+  const [density, setDensity] = useDensity()
+  const [palette, setPalette] = useState(false)
+  const [help, setHelp] = useState(false)
 
-  usePolling(refresh, REFRESH_MS)
-
-  // ⌘K / Ctrl-K anywhere. Registered on the shell rather than inside the
-  // palette so it works from any view, including one with a focused input.
-  const [paletteOpen, setPaletteOpen] = useState(false)
-  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setPaletteOpen((open) => !open)
+        setPalette((v) => !v)
         return
       }
-      // `?` only when nobody is typing — otherwise it steals the character from
-      // the search box, which is where people are most likely to press it.
-      const target = e.target as HTMLElement | null
-      const typing =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable === true
-      if (e.key === '?' && !typing) {
+      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey || document.querySelector('dialog[open]')) return
+      if (e.key === '/') {
+        const box = document.querySelector<HTMLInputElement>('main input[type="search"]')
+        if (box) {
+          e.preventDefault()
+          box.focus()
+        }
+      } else if (e.key === '?') {
         e.preventDefault()
-        setShortcutsOpen((open) => !open)
+        setHelp(true)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+  const overview = useOverview()
+  const openAlerts = overview.data?.openAlerts ?? 0
+  const openProblems = overview.data?.openErrorGroups ?? 0
 
   return (
     <div className="shell">
-      <Sidebar
-        apiBase={api.apiBase}
-        operator={session.operator}
-        // A detail page belongs to its list, so the rail keeps that section lit
-        // rather than going blank the moment you open something.
-        view={PARENT[view] ?? view}
-        onView={navigate}
-        overview={overview}
-        onSignOut={onSignOut}
-      />
-
-      <main className="main">
-        <StatusBar
-          overview={overview}
-          updatedAt={updatedAt}
-          refreshing={refreshing}
-          onRefresh={() => void refresh()}
-          onNavigate={navigate}
-          onSearch={() => setPaletteOpen(true)}
-        />
-        <div className="view" data-view={view}>
-          {view === 'device' ? (
-            <Device
-              // Remount per terminal: a page carrying another one's loaded
-              // history and errors while the new ones arrive is worse than
-              // a moment of skeleton.
-              key={route.params.id}
-              api={api}
-              deviceId={route.params.id ?? ''}
-              reloadKey={reloadKey}
-              onNavigate={navigate}
-              onBack={() => back('terminals')}
-            />
-          ) : view === 'shop' ? (
-            <Shop
-              key={route.params.id}
-              api={api}
-              shopId={route.params.id ?? ''}
-              reloadKey={reloadKey}
-              onNavigate={navigate}
-              onBack={() => back('shops')}
-              onUnauthorized={onSignOut}
-            />
-          ) : view === 'error' ? (
-            <ErrorGroup
-              key={route.params.id}
-              api={api}
-              fingerprint={route.params.id ?? ''}
-              reloadKey={reloadKey}
-              onNavigate={navigate}
-              onBack={() => back('errors')}
-            />
-          ) : view === 'shops' ? (
-            <Shops api={api} reloadKey={reloadKey} onNavigate={navigate} />
-          ) : view === 'errors' ? (
-            <Errors api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
-          ) : view === 'alerts' ? (
-            <Alerts api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
-          ) : view === 'commands' ? (
-            <Commands api={api} route={route} reloadKey={reloadKey} onNavigate={navigate} onReplace={replace} />
-          ) : view === 'rollouts' ? (
-            <Rollouts api={api} reloadKey={reloadKey} onNavigate={navigate} />
-          ) : view === 'trends' ? (
-            <Trends api={api} reloadKey={reloadKey} onNavigate={navigate} />
-          ) : view === 'backups' ? (
-            <Backups api={api} reloadKey={reloadKey} onNavigate={navigate} />
-          ) : view === 'quality' ? (
-            <Quality api={api} reloadKey={reloadKey} onNavigate={navigate} />
-          ) : view === 'operators' ? (
-            <Operators api={api} onUnauthorized={onSignOut} />
-          ) : view === 'audit' ? (
-            <Audit api={api} onUnauthorized={onSignOut} />
-          ) : view === 'terminals' ? (
-            <Terminals
-              api={api}
-              route={route}
-              overview={overview}
-              reloadKey={reloadKey}
-              onNavigate={navigate}
-              onReplace={replace}
-            />
-          ) : (
-            <Triage
-              api={api}
-              overview={overview}
-              reloadKey={reloadKey}
-              onNavigate={navigate}
-              onUnauthorized={onSignOut}
-            />
-          )}
+      <nav className="nav" aria-label="Main">
+        <div className="brand">
+          <span className="brand-mark">S</span>
+          <span>
+            SmartSort Fleet
+            <small>JumpSpaces</small>
+          </span>
         </div>
-      </main>
-
-      {paletteOpen && (
-        <Palette api={api} onNavigate={navigate} onClose={() => setPaletteOpen(false)} />
-      )}
-      {shortcutsOpen && <Shortcuts onClose={() => setShortcutsOpen(false)} />}
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ sidebar */
-
-interface NavItem {
-  id: View
-  label: string
-  icon: IconName
-  count?: number | null
-  /** Counts that mean "unfinished work" get weight; totals stay quiet. */
-  urgent?: boolean
-}
-
-/**
- * Five places cover a normal day: is anything wrong, which shop, what alerts
- * fired, what version the tills are on, who can sign in. Everything else is
- * real but occasional, so it sits under "More" — still one click away, not
- * eleven equal choices for someone who just wants to know if the shops are up.
- */
-function navGroups(overview: Overview | null, role: Session['operator']['role']): {
-  label: string | null
-  items: NavItem[]
-}[] {
-  const alerts = overview?.openAlerts ?? null
-  const errors = overview?.openErrorGroups ?? null
-  const item = (id: View, icon: IconName, extra: Partial<NavItem> = {}): NavItem => ({
-    id,
-    label: pageName(id),
-    icon,
-    ...extra,
-  })
-  return [
-    {
-      label: null,
-      items: [
-        item('triage', 'inbox'),
-        item('shops', 'shops'),
-        item('alerts', 'bell', { count: alerts, urgent: (alerts ?? 0) > 0 }),
-        item('rollouts', 'rocket'),
-        ...(role === 'admin' ? [item('operators', 'users')] : []),
-      ],
-    },
-    {
-      label: 'More',
-      items: [
-        item('terminals', 'terminals', { count: overview?.counts.all ?? null }),
-        item('errors', 'bug', { count: errors }),
-        item('backups', 'shield'),
-        item('quality', 'note'),
-        item('trends', 'trend'),
-        item('commands', 'prompt'),
-        item('audit', 'list'),
-      ],
-    },
-  ]
-}
-
-const ROLE_LABEL: Record<Session['operator']['role'], string> = {
-  admin: 'Admin',
-  operator: 'Support',
-  viewer: 'Can view only',
-}
-
-const LS_MORE = 'fleet_nav_more'
-
-/** Whether "More" is unfolded — a per-person convenience, so browser storage. */
-function useMoreOpen(): [boolean, (open: boolean) => void] {
-  const [open, setOpen] = useState(() => {
-    try {
-      return localStorage.getItem(LS_MORE) === '1'
-    } catch {
-      return false
-    }
-  })
-  const set = useCallback((next: boolean) => {
-    setOpen(next)
-    try {
-      if (next) localStorage.setItem(LS_MORE, '1')
-      else localStorage.removeItem(LS_MORE)
-    } catch {
-      /* private window: it just will not be remembered */
-    }
-  }, [])
-  return [open, set]
-}
-
-function Sidebar({
-  apiBase,
-  operator,
-  view,
-  onView,
-  overview,
-  onSignOut,
-}: {
-  apiBase: string
-  operator: Session['operator']
-  view: View
-  onView: (v: View) => void
-  overview: Overview | null
-  onSignOut: () => void
-}) {
-  const [theme, setTheme] = useTheme()
-  const [density, setDensity] = useDensity()
-  const [moreOpen, setMoreOpen] = useMoreOpen()
-  const groups = navGroups(overview, operator.role)
-
-  return (
-    <header className="sidebar">
-      <Mark />
-
-      <nav className="nav" aria-label="Sections">
-        {groups.map((group, gi) => {
-          const folded = group.label === 'More' && !moreOpen && !group.items.some((it) => it.id === view)
-          return (
-            <div className="nav-group" key={group.label ?? gi}>
-              {group.label === 'More' ? (
-                <button
-                  type="button"
-                  className="nav-more"
-                  aria-expanded={!folded}
-                  onClick={() => setMoreOpen(folded)}
-                >
-                  More
-                  <Icon name="chevron" size={12} />
-                </button>
-              ) : (
-                group.label && <span className="nav-label">{group.label}</span>
-              )}
-              {!folded &&
-                group.items.map((it) => (
-                  <button
-                    key={it.id}
-                    type="button"
-                    className="nav-item"
-                    aria-current={view === it.id ? 'page' : undefined}
-                    onClick={() => onView(it.id)}
-                  >
-                    <Icon name={it.icon} />
-                    {it.label}
-                    {it.count != null && it.count > 0 && (
-                      <span className="nav-count" data-urgent={it.urgent || undefined}>
-                        {it.count}
-                      </span>
-                    )}
-                  </button>
-                ))}
-            </div>
-          )
-        })}
-      </nav>
-
-      <div className="sidebar-foot">
-        <div className="conn-row">
-          <div className="conn">
-            <span className="conn-who" title={`${operator.name} · ${operator.role}`}>
-              {operator.name}
-            </span>
-            <span className="conn-host" title={`${operator.role} · ${hostOf(apiBase)}`}>
-              {ROLE_LABEL[operator.role]}
-            </span>
+        {NAV.map((g, gi) => (
+          <div key={gi} style={{ display: 'contents' }}>
+            {g.group && <div className="nav-group">{g.group}</div>}
+            {!g.group && gi > 0 && <div className="nav-group" aria-hidden="true" />}
+            {g.items.map((n) => (
+              <a
+                key={n.page}
+                className="nav-link"
+                href={href(n.path)}
+                aria-current={route.page === n.page || route.page === n.also ? 'page' : undefined}
+                aria-label={n.label}
+                title={n.label}
+              >
+                <Icon name={n.icon} />
+                <span className="nav-label-text">{n.label}</span>
+                {n.page === 'alerts' && openAlerts > 0 && <span className="nav-count">{openAlerts}</span>}
+                {n.page === 'problems' && openProblems > 0 && <span className="nav-count quiet">{openProblems}</span>}
+              </a>
+            ))}
           </div>
-          <Button variant="ghost" size="sm" onClick={onSignOut}>
-            Sign out
-          </Button>
-        </div>
-
-        <div className="sidebar-actions">
-          <ThemeToggle theme={theme} onTheme={setTheme} />
-          <Button
-            variant="ghost"
-            className="btn-icon"
-            aria-label={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}
-            title={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}
-            onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')}
-          >
-            <Icon name="list" />
-          </Button>
-        </div>
-      </div>
-    </header>
-  )
-}
-
-/* --------------------------------------------------------------- status bar */
-
-/**
- * The fleet's state on every page, not just the first one. Somebody deep in a
- * rollout or a shop's inventory still sees a till drop offline, because the
- * counts that say so sit above whatever they are reading, and each one is a
- * link to exactly those terminals.
- */
-function StatusBar({
-  overview,
-  updatedAt,
-  refreshing,
-  onRefresh,
-  onNavigate,
-  onSearch,
-}: {
-  overview: Overview | null
-  updatedAt: number | null
-  refreshing: boolean
-  onRefresh: () => void
-  onNavigate: Navigate
-  onSearch: () => void
-}) {
-  const since = useTicker(updatedAt != null)
-  const age = updatedAt == null ? null : since - updatedAt
-  const stale = age == null || age > STALE_MS
-  const c = overview?.counts
-
-  return (
-    <div className="statusbar">
-      <div className="pulse" aria-label="Tills right now">
-        {c ? (
-          <>
-            <button type="button" className="pulse-item" onClick={() => onNavigate('terminals', { state: 'healthy' })}>
-              <span className="dot" data-tone="ok" aria-hidden="true" />
-              <b className="num">{c.healthy}</b> fine
+        ))}
+        <div className="nav-foot">
+          <div className="who" title={session.operator.email}>
+            {session.operator.name}
+            <div className="muted small">{session.operator.role}</div>
+          </div>
+          <div className="host muted small">{host(session.apiBase)}</div>
+          <div className="nav-foot-row">
+            <button
+              className="btn icon ghost"
+              onClick={() => setTheme(NEXT_THEME[theme])}
+              title={`Theme: ${theme}`}
+              aria-label={`Theme: ${theme}. Change theme`}
+            >
+              <Icon name={THEME_ICON[theme]} />
             </button>
-            {c.attention > 0 && (
-              <button
-                type="button"
-                className="pulse-item"
-                data-hot="true"
-                onClick={() => onNavigate('terminals', { state: 'attention' })}
-              >
-                <span className="dot" data-tone="warn" aria-hidden="true" />
-                <b className="num">{c.attention}</b> need{c.attention === 1 ? 's' : ''} a look
-              </button>
-            )}
-            {c.offline > 0 && (
-              <button
-                type="button"
-                className="pulse-item"
-                data-hot="true"
-                data-tone="bad"
-                onClick={() => onNavigate('terminals', { state: 'offline' })}
-              >
-                <span className="dot" data-tone="bad" aria-hidden="true" />
-                <b className="num">{c.offline}</b> not connected
-              </button>
-            )}
-          </>
-        ) : (
-          <span className="skeleton" style={{ width: 240, height: 14 }} aria-hidden="true" />
-        )}
-      </div>
-
-      <button type="button" className="omnibox" onClick={onSearch}>
-        <Icon name="search" size={14} />
-        <span>Search shops and tills</span>
-        <kbd>⌘K</kbd>
-      </button>
-
-      <div className="statusbar-end">
-        <span className="conn-live" title={updatedAt ? new Date(updatedAt).toLocaleTimeString() : undefined}>
-          <span className="dot dot-live" data-stale={stale || undefined} aria-hidden="true" />
-          {age == null ? 'Connecting…' : stale ? `Updated ${duration(age)} ago` : 'Up to date'}
-        </span>
-        <Button
-          variant="ghost"
-          className="btn-icon"
-          onClick={onRefresh}
-          busy={refreshing}
-          aria-label="Refresh now"
-          title="Refresh now"
-        >
-          {!refreshing && <Icon name="refresh" />}
-        </Button>
-      </div>
+            <button
+              className="btn icon ghost"
+              onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')}
+              title={density === 'compact' ? 'Roomier rows' : 'Compact rows'}
+              aria-label={density === 'compact' ? 'Switch to roomier rows' : 'Switch to compact rows'}
+              aria-pressed={density === 'compact'}
+            >
+              <Icon name="rows" />
+            </button>
+            <button className="btn icon ghost" onClick={() => setPalette(true)} title="Go to… (⌘K)" aria-label="Go to a page, shop or till">
+              <Icon name="search" />
+            </button>
+            <button className="btn icon ghost" onClick={signOut} title="Sign out" aria-label="Sign out">
+              <Icon name="out" />
+            </button>
+          </div>
+        </div>
+      </nav>
+      <Palette open={palette} onClose={() => setPalette(false)} />
+      <ShortcutHelp open={help} onClose={() => setHelp(false)} />
+      <main className="main">
+        <ErrorBoundary key={route.page + ('id' in route ? route.id : '')}>
+          <Page route={route} params={params} />
+        </ErrorBoundary>
+      </main>
     </div>
   )
 }
 
-function ThemeToggle({
-  theme,
-  onTheme,
-}: {
-  theme: ThemePref
-  onTheme: (t: ThemePref) => void
-}) {
-  const opts: { id: ThemePref; icon: 'sun' | 'moon' | 'auto'; label: string }[] = [
-    { id: 'light', icon: 'sun', label: 'Light' },
-    { id: 'dark', icon: 'moon', label: 'Dark' },
-    { id: 'system', icon: 'auto', label: 'Match system' },
-  ]
-  return (
-    <div className="segmented" role="group" aria-label="Colour theme">
-      {opts.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          aria-current={theme === o.id}
-          aria-label={o.label}
-          title={o.label}
-          onClick={() => onTheme(o.id)}
-        >
-          <Icon name={o.icon} size={14} />
+function Page({ route, params }: { route: Route; params: URLSearchParams }) {
+  switch (route.page) {
+    case 'home':
+      return <Home />
+    case 'tills':
+      return <Tills params={params} />
+    case 'till':
+      return <Till id={route.id} />
+    case 'shops':
+      return <Shops params={params} />
+    case 'shop':
+      return <Shop id={route.id} params={params} />
+    case 'alerts':
+      return <Alerts params={params} />
+    case 'problems':
+      return <Problems params={params} />
+    case 'problem':
+      return <Problem fingerprint={route.id} />
+    case 'updates':
+      return <Updates />
+    case 'update':
+      return <Update id={route.id} />
+    case 'fixes':
+      return <Fixes params={params} />
+    case 'history':
+      return <History params={params} />
+    case 'backups':
+      return <Backups />
+    case 'records':
+      return <Records />
+    case 'activity':
+      return <Activity params={params} />
+    case 'settings':
+      return <Settings params={params} />
+    default:
+      return (
+        <div className="card empty">
+          <strong>Page not found</strong>
+          <a href={href('/')}>Go home</a>
+        </div>
+      )
+  }
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div className="card empty">
+        <strong>This page hit a problem</strong>
+        <p className="mono small" style={{ margin: '8px 0 12px' }}>
+          {this.state.error.message}
+        </p>
+        <button className="btn" onClick={() => this.setState({ error: null })}>
+          Try again
         </button>
-      ))}
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------- timing */
-
-/**
- * Poll on an interval, but only while the tab is visible — a dashboard left
- * open on a second monitor overnight should not keep hitting the droplet, and
- * the first thing anyone wants on returning is a fresh read anyway.
- */
-function usePolling(run: () => void | Promise<void>, ms: number) {
-  const latest = useRef(run)
-  latest.current = run
-
-  useEffect(() => {
-    let timer: number | undefined
-
-    const tick = () => {
-      if (document.visibilityState === 'visible') void latest.current()
-    }
-    const start = () => {
-      window.clearInterval(timer)
-      timer = window.setInterval(tick, ms)
-    }
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return
-      void latest.current()
-      start()
-    }
-
-    void latest.current()
-    start()
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [ms])
-}
-
-/** Re-renders once a second so "12s ago" stays honest between polls. */
-function useTicker(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!active) return
-    const t = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(t)
-  }, [active])
-  return now
+      </div>
+    )
+  }
 }

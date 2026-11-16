@@ -84,7 +84,8 @@ npm test           # unit tests
 # or: npm run build && npm run preview
 ```
 
-Sign in with your operator email and password. Optionally bake a default URL
+Sign in with your operator email and password. In dev the server address
+starts empty; enter it under "Server" on the sign-in screen. Optionally bake a default URL
 with `VITE_FLEET_API=https://cloud…` at build time.
 
 ## Auth model
@@ -147,9 +148,9 @@ identity is asserted rather than proven.
 
 ## A shop's inventory
 
-Open a shop's drawer and the last three sections are its stock, not its
-machines: what the catalogue holds, a download of any of its books, and a way
-to put inventory in on the shop's behalf. Onboarding a corner shop includes
+A shop's **Stock** tab is its inventory, not its machines: what the catalogue
+holds, a download of any of its books, and a way to put inventory in on the
+shop's behalf. Onboarding a corner shop includes
 "send us your stock list and we'll load it", and doing that over the phone
 through their own admin app was the only option before.
 
@@ -191,8 +192,8 @@ never an operator session.
 
 ## URLs
 
-View, filters, sort, page and the open drawer all live in the URL
-(`#/terminals?state=offline&device=…`). Links are shareable, the back button
+Page, filters, sort and tab all live in the URL
+(`#/tills?state=offline`, `#/shops/<id>?tab=stock`). Links are shareable, the back button
 works, and a refresh keeps you where you were.
 
 ## Design
@@ -210,3 +211,15 @@ changing anything visual. Two rules the rest of the UI depends on:
 
 Light and dark are both first-class and follow the OS until someone picks one
 (`src/lib/theme.ts`).
+
+## Code layout
+
+- `src/api/` — the transport (`client.ts`: session, single-flight refresh,
+  downloads), every endpoint (`endpoints.ts`) and the response types.
+- `src/lib/query.ts` — the data layer: cached by key, one request per key,
+  polling that pauses in a hidden tab, `invalidate(prefix)` after a write.
+- `src/data.ts` — the reads, with their cache keys and poll rates.
+- `src/pages/` — one file per page; shop and till sections live in
+  `pages/shop/` and `pages/till/`.
+- `src/lib/plain.ts` — the everyday wording for every health reason and
+  alert rule. A new server reason needs a line here, or it reads "Needs a look".

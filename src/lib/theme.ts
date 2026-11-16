@@ -1,63 +1,36 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-/**
- * Light is the default because of where this gets used: a lit desk, during the
- * day, glanced at between other work. Dark is a real peer rather than an
- * afterthought — the 11pm "a shop just called" case is exactly when someone
- * opens this — and `system` stays a visible choice, but it is opt-in: an OS set
- * to dark for other reasons should not turn the console dark uninvited.
- */
-export type ThemePref = 'light' | 'dark' | 'system'
+export type Theme = 'system' | 'light' | 'dark'
+const KEY = 'fleet_theme'
 
-const LS_THEME = 'fleet_theme'
-
-function resolve(pref: ThemePref): 'light' | 'dark' {
-  if (pref !== 'system') return pref
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
-function apply(pref: ThemePref) {
-  document.documentElement.dataset.theme = resolve(pref)
-}
-
-/** Light unless someone has chosen otherwise — `system` is stored explicitly. */
-function read(): ThemePref {
+function read(): Theme {
   try {
-    const stored = localStorage.getItem(LS_THEME)
-    return stored === 'dark' || stored === 'system' ? stored : 'light'
+    const v = localStorage.getItem(KEY)
+    return v === 'light' || v === 'dark' ? v : 'system'
   } catch {
-    return 'light'
+    return 'system'
   }
 }
 
-export function useTheme(): [ThemePref, (next: ThemePref) => void] {
-  const [pref, setPref] = useState<ThemePref>(read)
-
+/** Follows the OS until someone picks; the choice is per browser. */
+export function useTheme(): [Theme, (t: Theme) => void] {
+  const [theme, setTheme] = useState<Theme>(read)
   useEffect(() => {
-    apply(pref)
-    if (pref !== 'system') return
-    // Follow the OS while `system` is selected — a laptop that flips at dusk
-    // should flip this too, without a reload.
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => apply('system')
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [pref])
-
-  const set = useCallback((next: ThemePref) => {
+    const root = document.documentElement
+    if (theme === 'system') root.removeAttribute('data-theme')
+    else root.setAttribute('data-theme', theme)
     try {
-      if (next === 'light') localStorage.removeItem(LS_THEME)
-      else localStorage.setItem(LS_THEME, next)
+      if (theme === 'system') localStorage.removeItem(KEY)
+      else localStorage.setItem(KEY, theme)
     } catch {
-      // A blocked localStorage costs the preference, not the page.
+      // Storage refused: the choice lasts this tab.
     }
-    setPref(next)
-  }, [])
-
-  return [pref, set]
+  }, [theme])
+  return [theme, setTheme]
 }
 
-/** Called before React mounts so the first paint is already the right theme. */
-export function initTheme() {
-  apply(read())
+/** Apply the stored choice before React mounts, so there's no flash. */
+export function applyStoredTheme() {
+  const t = read()
+  if (t !== 'system') document.documentElement.setAttribute('data-theme', t)
 }

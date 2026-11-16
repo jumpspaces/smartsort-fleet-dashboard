@@ -1,111 +1,46 @@
-/**
- * A small hand-rolled icon set rather than a dependency: this app needs a
- * handful of glyphs, and one consistent stroke weight matters more than
- * breadth. All are 16px on a 16 grid, 1.5 stroke, round caps — same vocabulary
- * everywhere.
- */
+/** Stroke icons, 16px, inheriting currentColor. */
+const PATHS = {
+  home: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z',
+  till: 'M4 5h16v10H4zM8 19h8M12 15v4',
+  shop: 'M4 9h16l-1-5H5zM5 9v11h14V9M9 20v-6h6v6',
+  bell: 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0',
+  search: 'M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM20 20l-4-4',
+  back: 'M15 18l-6-6 6-6',
+  chevron: 'M9 6l6 6-6 6',
+  up: 'M6 15l6-6 6 6',
+  down: 'M6 9l6 6 6-6',
+  sun: 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
+  moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z',
+  auto: 'M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18',
+  out: 'M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 16l-4-4 4-4M6 12h10',
+  bug: 'M8 9a4 4 0 0 1 8 0v6a4 4 0 0 1-8 0zM12 9v10M4 13h4M16 13h4M5 8l3 2M19 8l-3 2M5 19l3-2M19 19l-3-2',
+  wrench: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.8-.7-.7-2.8z',
+  upload: 'M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3',
+  chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  disk: 'M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM8 4v5h8V4M8 20v-6h8v6',
+  check: 'M9 11l3 3 8-8M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9',
+  list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
+  gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
+  rows: 'M4 6h16M4 10h16M4 14h16M4 18h16',
+  refresh: 'M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4',
+} as const
 
-export type IconName =
-  | 'terminals'
-  | 'shops'
-  | 'search'
-  | 'chevron'
-  | 'sortArrow'
-  | 'copy'
-  | 'check'
-  | 'close'
-  | 'refresh'
-  | 'alert'
-  | 'bug'
-  | 'bell'
-  | 'link'
-  | 'sun'
-  | 'moon'
-  | 'auto'
-  | 'inbox'
-  | 'users'
-  | 'list'
-  | 'prompt'
-  | 'download'
-  | 'upload'
-  | 'mute'
-  | 'note'
-  | 'tag'
-  | 'rocket'
-  | 'trend'
-  | 'shield'
-  | 'disk'
+export type IconName = keyof typeof PATHS
 
-/** A stroked outline, optionally with a solid half — used for the auto-theme
-    glyph, where a stroke-only half circle just reads as the letter D. */
-type Glyph = string | { d: string; fill: string }
-
-const PATHS: Record<IconName, Glyph> = {
-  terminals: 'M2.75 3.25h10.5v7.5H2.75zM6 13.25h4M8 10.75v2.5',
-  shops: 'M2.75 6.25h10.5v7h-10.5zM2.75 6.25 4 2.75h8L13.25 6.25M6.25 13.25v-4h3.5v4',
-  search: 'M7.25 12a4.75 4.75 0 1 0 0-9.5 4.75 4.75 0 0 0 0 9.5ZM10.75 10.75l2.5 2.5',
-  chevron: 'M6 3.5 10.5 8 6 12.5',
-  sortArrow: 'M8 3.25v9.5M4.75 9.5 8 12.75l3.25-3.25',
-  copy: 'M5.75 5.75h7.5v7.5h-7.5zM10.25 5.75v-3h-7.5v7.5h3',
-  check: 'm3.25 8.5 3.25 3.25 6.25-7',
-  close: 'm4 4 8 8M12 4l-8 8',
-  refresh: 'M13.25 8a5.25 5.25 0 1 1-1.6-3.78M13.25 2.5v3h-3',
-  alert: 'M8 5.5v3.25M8 11.25h.01M8 2.25 14 12.75H2z',
-  bug: 'M5.25 6.25a2.75 2.75 0 0 1 5.5 0v3a2.75 2.75 0 0 1-5.5 0zM6.25 4.25 5.25 2.75M9.75 4.25l1-1.5M5.25 7.5H2.75M13.25 7.5h-2.5M5.25 10.25 3 11.5M10.75 10.25 13 11.5',
-  bell: 'M8 2.75a3.75 3.75 0 0 1 3.75 3.75c0 3 1 3.75 1 3.75h-9.5s1-.75 1-3.75A3.75 3.75 0 0 1 8 2.75ZM6.75 12.75a1.25 1.25 0 0 0 2.5 0',
-  link: 'M6.75 9.25a2.5 2.5 0 0 0 3.5 0l2-2a2.47 2.47 0 0 0-3.5-3.5l-.75.75M9.25 6.75a2.5 2.5 0 0 0-3.5 0l-2 2a2.47 2.47 0 0 0 3.5 3.5l.75-.75',
-  sun: 'M8 10.75a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5ZM8 1.75v1.5M8 12.75v1.5M14.25 8h-1.5M3.25 8h-1.5M12.42 3.58l-1.06 1.06M4.64 11.36l-1.06 1.06M12.42 12.42l-1.06-1.06M4.64 4.64 3.58 3.58',
-  moon: 'M13.25 9.4A5.6 5.6 0 0 1 6.6 2.75a5.75 5.75 0 1 0 6.65 6.65Z',
-  auto: {
-    d: 'M8 14.25a6.25 6.25 0 1 0 0-12.5 6.25 6.25 0 0 0 0 12.5Z',
-    fill: 'M8 1.75a6.25 6.25 0 0 1 0 12.5Z',
-  },
-  inbox: 'M2.75 8.75h3l1 2h2.5l1-2h3M2.75 8.75 4.5 3.25h7l1.75 5.5v4h-10.5z',
-  users:
-    'M6 8.25a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM2 13.25c0-2.21 1.79-4 4-4s4 1.79 4 4M11 4.1a2.5 2.5 0 0 1 0 4.83M13.5 13.25c0-2.02-1.5-3.68-3.5-3.96',
-  list: 'M6.25 4.25h7M6.25 8h7M6.25 11.75h7M2.75 4.25h.01M2.75 8h.01M2.75 11.75h.01',
-  prompt: 'M2.75 2.75h10.5v10.5H2.75zM5 6.25 7.25 8 5 9.75M8.75 9.75h2.25',
-  download: 'M8 2.75v7M5 6.75 8 9.75l3-3M3.25 12.75h9.5',
-  upload: 'M8 9.75v-7M5 5.75 8 2.75l3 3M3.25 12.75h9.5',
-  // A bell with a stroke through it: silenced, not removed — which is exactly
-  // what a maintenance window does.
-  mute: 'M8 2.75a3.75 3.75 0 0 1 3.75 3.75c0 3 1 3.75 1 3.75h-9.5s1-.75 1-3.75A3.75 3.75 0 0 1 8 2.75ZM2.75 2.75l10.5 10.5',
-  note: 'M3.75 2.75h8.5v10.5h-8.5zM6 5.75h4M6 8.25h4M6 10.75h2.5',
-  tag: 'M2.75 2.75h4.5l6 6-4.5 4.5-6-6zM5 5h.01',
-  rocket: 'M6.5 9.5 3.75 8.75l1.5-2.5a7 7 0 0 1 6-3.5 7 7 0 0 1-3.5 6l-2.5 1.5zM6.5 9.5l.75 2.75M4.5 11.5l-1.75 1.75',
-  trend: 'M2.75 11.25 6 7.75l2.5 2.25 4.75-5.25M13.25 4.75h-3M13.25 4.75v3',
-  shield: 'M8 2.25 13.25 4v4c0 3-2.25 4.75-5.25 5.75C5 12.75 2.75 11 2.75 8V4z',
-  disk: 'M2.75 4.5c0-1 2.35-1.75 5.25-1.75S13.25 3.5 13.25 4.5v7c0 1-2.35 1.75-5.25 1.75S2.75 12.5 2.75 11.5zM2.75 8c0 1 2.35 1.75 5.25 1.75S13.25 9 13.25 8',
-}
-
-export function Icon({
-  name,
-  size = 16,
-  className,
-}: {
-  name: IconName
-  size?: number
-  className?: string
-}) {
-  const glyph = PATHS[name]
-  const outline = typeof glyph === 'string' ? glyph : glyph.d
-
+export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return (
     <svg
-      className={className}
       width={size}
       height={size}
-      viewBox="0 0 16 16"
+      viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.5}
+      strokeWidth={1.8}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      focusable="false"
     >
-      <path d={outline} />
-      {typeof glyph !== 'string' && <path d={glyph.fill} fill="currentColor" stroke="none" />}
+      <path d={PATHS[name]} />
     </svg>
   )
 }
