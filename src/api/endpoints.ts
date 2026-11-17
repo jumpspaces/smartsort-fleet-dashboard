@@ -2,6 +2,8 @@ import type { Client } from './client.ts'
 import type {
   Alert,
   AlertState,
+  ClosureView,
+  ShopClosure,
   AssistantBrief,
   AssistantSwitches,
   AuditEntry,
@@ -388,6 +390,22 @@ export const healthBrief = (c: Client, fresh = false) =>
 /* ---------------------------------------------------------------- shops */
 
 const shopPath = (id: string, suffix = '') => `/api/stores/${enc(id)}${suffix}`
+
+/* closing a shop we no longer work with, and deleting its data */
+export const shopClosure = (c: Client, shopId: string, signal?: AbortSignal) =>
+  c.get<ClosureView>(shopPath(shopId, '/closure'), signal)
+export const shopClosures = (c: Client, signal?: AbortSignal) =>
+  c.get<{ closures: ShopClosure[]; purgeAfterDays: number }>('/api/stores/closures', signal)
+export const closeShop = (c: Client, shopId: string, input: { reason?: string; password: string }) =>
+  c.post<ClosureView>(shopPath(shopId, '/close'), input)
+export const reopenShop = (c: Client, shopId: string, password: string) =>
+  c.post<ClosureView>(shopPath(shopId, '/reopen'), { password })
+export const approveShopPurge = (c: Client, shopId: string, password: string) =>
+  c.post<ClosureView>(shopPath(shopId, '/purge-approval'), { password })
+export const withdrawShopPurge = (c: Client, shopId: string) => c.del<ClosureView>(shopPath(shopId, '/purge-approval'))
+/** Everything the shop owns, zipped, for the owner. Takes the operator's password. */
+export const shopAllData = (c: Client, shopId: string, password: string) =>
+  c.download(shopPath(shopId, '/all-data'), 'shop-data.zip', { password })
 
 export const provisionShop = (c: Client, input: ProvisionInput) => c.post<ProvisionResult>('/api/stores/provision', input)
 export const reissueClaimCode = (c: Client, shopId: string) =>

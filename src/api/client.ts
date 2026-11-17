@@ -54,8 +54,8 @@ export interface Client {
   del<T>(path: string): Promise<T>
   /** POST a raw text body (the CSV importers take the file itself). */
   postText<T>(path: string, body: string, contentType: string): Promise<T>
-  /** A file download, riding the same session handling as everything else. */
-  download(path: string, fallbackName: string): Promise<{ filename: string; blob: Blob }>
+  /** A file download, riding the same session handling as everything else. A body makes it a POST. */
+  download(path: string, fallbackName: string, body?: unknown): Promise<{ filename: string; blob: Blob }>
 }
 
 export interface ClientHooks {
@@ -124,8 +124,8 @@ export function createClient(initial: Session, hooks: ClientHooks): Client {
     put: (path, body) => request(path, { method: 'PUT', body: json(body) }),
     del: (path) => request(path, { method: 'DELETE' }),
     postText: (path, body, contentType) => request(path, { method: 'POST', body }, contentType),
-    download: async (path, fallbackName) => {
-      const res = await raw(path)
+    download: async (path, fallbackName, body) => {
+      const res = await raw(path, body === undefined ? {} : { method: 'POST', body: json(body) })
       // Readable cross-origin only because the API exposes the header; an
       // older server still saves the file, under the fallback name.
       const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')

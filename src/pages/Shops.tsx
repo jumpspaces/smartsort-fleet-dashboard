@@ -7,11 +7,11 @@ import { useSession } from '../lib/session.tsx'
 import { until } from '../lib/format.ts'
 import { saveCsv } from '../lib/csv.ts'
 import { Card, Empty, Live, Loadable, PageHeader, Search, Segmented, When } from '../components/ui.tsx'
-import { useShops } from '../data.ts'
+import { useApi, useShops } from '../data.ts'
 import { count } from '../lib/format.ts'
 import { shopHref, useSetParams } from '../lib/router.ts'
 
-type Filter = 'all' | 'problems' | 'setup'
+type Filter = 'all' | 'problems' | 'setup' | 'closed'
 
 function worst(s: Shop): 0 | 1 | 2 | 3 {
   if (s.health.offline) return 0
@@ -27,7 +27,7 @@ export function Shops({ params }: { params: URLSearchParams }) {
   const [creating, setCreating] = useState(false)
   const [q, setQ] = useState('')
   const f = params.get('show')
-  const filter: Filter = f === 'problems' || f === 'setup' ? f : 'all'
+  const filter: Filter = f === 'problems' || f === 'setup' || f === 'closed' ? f : 'all'
 
   return (
     <div className="stack">
@@ -71,9 +71,13 @@ export function Shops({ params }: { params: URLSearchParams }) {
       <Loadable q={shops} rows={8}>
         {(all) => {
           const needle = q.trim().toLowerCase()
-          const problems = all.filter((s) => s.health.offline || s.health.attention)
-          const setup = all.filter((s) => !s.activated)
-          const base = filter === 'problems' ? problems : filter === 'setup' ? setup : all
+          // A closed shop is out of every list but its own: its tills are cut
+          // off on purpose, and it isn't waiting to be set up.
+          const open = all.filter((s) => !s.closure)
+          const closed = all.filter((s) => s.closure)
+          const problems = open.filter((s) => s.health.offline || s.health.attention)
+          const setup = open.filter((s) => !s.activated)
+          const base = filter === 'problems' ? problems : filter === 'setup' ? setup : filter === 'closed' ? closed : open
           const list = base
             .filter(
               (s) =>
@@ -90,16 +94,17 @@ export function Shops({ params }: { params: URLSearchParams }) {
                   value={filter}
                   onChange={(v) => setParams({ show: v === 'all' ? null : v })}
                   options={[
-                    { value: 'all', label: 'All', n: all.length },
+                    { value: 'all', label: 'All', n: open.length },
                     { value: 'problems', label: 'With problems', n: problems.length },
                     { value: 'setup', label: 'Not set up yet', n: setup.length },
+                    ...(closed.length || filter === 'closed' ? [{ value: 'closed' as const, label: 'Closed', n: closed.length }] : []),
                   ]}
                 />
                 <Search value={q} onChange={setQ} placeholder="Search name, code, owner or place" />
               </div>
               <Card flush>
                 {list.length === 0 ? (
-                  <Empty title={all.length ? 'No shops match' : 'No shops yet'} />
+                  <Empty title={filter === 'closed' ? 'No closed shops' : all.length ? 'No shops match' : 'No shops yet'} />
                 ) : (
                   <div className="table-wrap">
                     <table className="table cards">
@@ -137,7 +142,11 @@ export function Shops({ params }: { params: URLSearchParams }) {
                               <TillHealth s={s} />
                             </td>
                             <td data-label="Set up">
-                              {s.activated ? (
+                              {s.closure ? (
+                                <span className="badge attention" title={`Closed ${until(s.closure.closedAt)}`}>
+                                  {s.closure.purgeApprovedAt ? `Closed · deleted ${until(s.closure.purgeAfter)}` : 'Closed'}
+                                </span>
+                              ) : s.activated ? (
                                 <span className="sub">Yes</span>
                               ) : s.hasLiveClaimCode ? (
                                 <span className="badge neutral">Code sent</span>
@@ -155,11 +164,63 @@ export function Shops({ params }: { params: URLSearchParams }) {
                   </div>
                 )}
               </Card>
+              {filter === 'closed' && <DeletedShops />}
             </>
           )
         }}
       </Loadable>
     </div>
+  )
+}
+
+/** Shops whose data is gone: the record of who closed them, who agreed and what went. */
+function DeletedShops() {
+  const q = useApi('closures', (c, s) => api.shopClosures(c, s))
+  return (
+    <Card title="Deleted" sub="Shops whose data was removed from the server. Backups that still hold it age out within 14 days." flush>
+      <Loadable q={q} rows={2}>
+        {({ closures }) => {
+          const gone = closures.filter((c) => c.status === 'purged')
+          return gone.length === 0 ? (
+            <Empty title="None deleted" />
+          ) : (
+            <div className="table-wrap">
+              <table className="table cards">
+                <thead>
+                  <tr>
+                    <th>Shop</th>
+                    <th>Closed</th>
+                    <th>Deleted</th>
+                    <th>Records</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gone.map((c) => (
+                    <tr key={c.id}>
+                      <td data-label="" className="primary-cell">
+                        {c.shopName}
+                        <div className="small muted">{c.shopCode ?? '—'}</div>
+                      </td>
+                      <td data-label="Closed">
+                        <When iso={c.closedAt} />
+                        {c.closedByLabel && <div className="small muted">{c.closedByLabel}</div>}
+                      </td>
+                      <td data-label="Deleted">
+                        <When iso={c.purgedAt} />
+                        {c.purgeApprovedByLabel && <div className="small muted">agreed by {c.purgeApprovedByLabel}</div>}
+                      </td>
+                      <td data-label="Records" className="num">
+                        {count(Object.values(c.purgeCounts ?? {}).reduce((a, b) => a + b, 0))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }}
+      </Loadable>
+    </Card>
   )
 }
 

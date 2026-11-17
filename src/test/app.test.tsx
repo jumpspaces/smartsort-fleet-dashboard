@@ -692,3 +692,140 @@ describe('Shop till settings', () => {
     )
   })
 })
+
+describe('closing a shop', () => {
+  const shopRow = (over: Record<string, unknown> = {}) => ({
+    id: 's1',
+    name: 'Kumasi Mart',
+    code: 'KM1',
+    location: null,
+    phone: null,
+    currency: 'GHS',
+    createdAt: '2026-10-01T09:00:00Z',
+    owner: null,
+    activated: true,
+    hasLiveClaimCode: false,
+    claimCodeExpiresAt: null,
+    health: { healthy: 1, attention: 0, offline: 0 },
+    machines: [],
+    closure: null,
+    ...over,
+  })
+  const closure = (over: Record<string, unknown> = {}) => ({
+    id: 'c1',
+    shopId: 's1',
+    shopName: 'Kumasi Mart',
+    shopCode: 'KM1',
+    status: 'closed',
+    reason: 'Stopped trading',
+    closedAt: '2026-11-10T09:00:00Z',
+    closedBy: 'op2',
+    closedByLabel: 'kofi@jumpspaces.co',
+    purgeAfter: '2026-12-10T09:00:00Z',
+    purgeApprovedAt: null,
+    purgeApprovedBy: null,
+    purgeApprovedByLabel: null,
+    exportedAt: null,
+    exportedByLabel: null,
+    reopenedAt: null,
+    reopenedByLabel: null,
+    purgedAt: null,
+    purgeCounts: null,
+    purgeError: null,
+    ...over,
+  })
+
+  it('warns about unsent sales, then closes with a reason and a password', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      ...shellRoutes.filter((r) => r.path !== '/api/stores'),
+      { path: '/api/stores', reply: { shops: [shopRow()] } },
+      {
+        path: '/api/stores/s1/closure',
+        reply: { status: 'open', closure: null, purgeOn: null, unsent: [{ deviceId: 'dev-1', syncPending: 3, lastReportAt: null }], purgeAfterDays: 30 },
+      },
+      { method: 'POST', path: '/api/stores/s1/close', reply: { status: 'closed' } },
+    ])
+    render(<App />)
+    await go('#/shops/s1?tab=closing')
+    expect((await screen.findAllByText(/1 till still has 3 records it hasn't sent/)).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Close shop…' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Why (optional)'), { target: { value: 'Stopped trading' } })
+    fireEvent.change(within(dialog).getByLabelText('Your password'), { target: { value: 'pw' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close shop' }))
+    await waitFor(() =>
+      expect(server.calls.find((c) => c.method === 'POST' && c.path === '/api/stores/s1/close')?.body).toEqual({
+        password: 'pw',
+        reason: 'Stopped trading',
+      }),
+    )
+  })
+
+  it('asks a second operator to agree to deletion, and never the one who closed it', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      ...shellRoutes.filter((r) => r.path !== '/api/stores'),
+      { path: '/api/stores', reply: { shops: [shopRow({ closure: { status: 'closed', closedAt: '2026-11-10T09:00:00Z', purgeAfter: '2026-12-10T09:00:00Z', purgeApprovedAt: null } })] } },
+      { path: '/api/stores/s1/closure', reply: { status: 'closed', closure: closure(), purgeOn: null, unsent: [], purgeAfterDays: 30 } },
+      { method: 'POST', path: '/api/stores/s1/purge-approval', reply: { status: 'closed' } },
+    ])
+    render(<App />)
+    await go('#/shops/s1')
+    // The overview says it's closed before anything else.
+    expect(await screen.findByText(/Its tills and staff are cut off from the cloud/)).toBeTruthy()
+    await go('#/shops/s1?tab=closing')
+    fireEvent.click(await screen.findByRole('button', { name: 'Agree to delete…' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Your password'), { target: { value: 'pw2' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Agree to delete' }))
+    await waitFor(() =>
+      expect(server.calls.find((c) => c.method === 'POST' && c.path === '/api/stores/s1/purge-approval')?.body).toEqual({ password: 'pw2' }),
+    )
+  })
+
+  it('shows the closer that someone else has to agree', async () => {
+    signedIn('operator')
+    fakeServer([
+      ...shellRoutes.filter((r) => r.path !== '/api/stores'),
+      { path: '/api/stores', reply: { shops: [shopRow()] } },
+      { path: '/api/stores/s1/closure', reply: { status: 'closed', closure: closure({ closedBy: 'op1' }), purgeOn: null, unsent: [], purgeAfterDays: 30 } },
+    ])
+    render(<App />)
+    await go('#/shops/s1?tab=closing')
+    expect(await screen.findByText(/You closed it, so someone else has to agree/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Agree to delete…' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Reopen shop…' })).toBeTruthy()
+  })
+
+  it('keeps closed shops out of the list, under their own filter with the deleted ones', async () => {
+    signedIn('operator')
+    fakeServer([
+      ...shellRoutes.filter((r) => r.path !== '/api/stores'),
+      {
+        path: '/api/stores',
+        reply: {
+          shops: [
+            shopRow({ id: 's2', name: 'Accra Fresh' }),
+            shopRow({ closure: { status: 'closed', closedAt: '2026-11-10T09:00:00Z', purgeAfter: '2026-12-10T09:00:00Z', purgeApprovedAt: null } }),
+          ],
+        },
+      },
+      {
+        path: '/api/stores/closures',
+        reply: {
+          closures: [closure({ id: 'c2', shopId: 's9', shopName: 'Tema Corner', status: 'purged', purgedAt: '2026-11-01T09:00:00Z', purgeCounts: { sale: 40, product: 2 } })],
+          purgeAfterDays: 30,
+        },
+      },
+    ])
+    render(<App />)
+    await go('#/shops')
+    expect(await screen.findByText('Accra Fresh')).toBeTruthy()
+    expect(screen.queryByText('Kumasi Mart')).toBeNull()
+    await go('#/shops?show=closed')
+    expect(await screen.findByText('Kumasi Mart')).toBeTruthy()
+    expect(await screen.findByText('Tema Corner')).toBeTruthy()
+    expect(screen.getByText('42')).toBeTruthy()
+  })
+})

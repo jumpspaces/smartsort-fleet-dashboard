@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import * as api from '../../api/endpoints.ts'
 import { LOCK_REASONS } from '../../api/types.ts'
 import type { Command, CommandSpec, Device, DeviceSettingsView, IssueOptions, LockReason, SettingSource, StuckRow } from '../../api/types.ts'
-import { ConfirmButton, Dialog, Field } from '../../components/forms.tsx'
+import { ConfirmButton, Field } from '../../components/forms.tsx'
+import { StepUpDialog } from '../../components/StepUpDialog.tsx'
 import { belowOf, ConfigEditor, MessageEditor } from '../../components/TillLevelEditor.tsx'
 import { Card, ErrorNote, Loadable, Segmented, When } from '../../components/ui.tsx'
 import { useCommandCatalogue, useDeviceCommands, useDeviceSettings } from '../../data.ts'
@@ -121,74 +122,6 @@ type TillCommands = ReturnType<typeof useTillCommands>
 
 /** The latest finished run of a command, for showing its result. */
 const latestDone = (commands: Command[], name: string) => commands.find((c) => c.command === name && c.state === 'done')
-
-/* ---------------------------------------------------------- step-up form --- */
-
-/**
- * Ask for the operator's password before a drastic command. The server checks
- * it on the spot — a session token alone cannot lock a till.
- */
-function StepUpDialog({
-  open,
-  title,
-  confirm,
-  danger,
-  onClose,
-  onConfirm,
-  children,
-}: {
-  open: boolean
-  title: string
-  confirm: string
-  danger?: boolean
-  onClose: () => void
-  onConfirm: (password: string) => Promise<unknown>
-  children: ReactNode
-}) {
-  const [password, setPassword] = useState('')
-  const act = useAction(async (pw: string) => {
-    await onConfirm(pw)
-    setPassword('')
-    onClose()
-  })
-  const close = () => {
-    setPassword('')
-    onClose()
-  }
-  return (
-    <Dialog open={open} onClose={close} title={title}>
-      <form
-        className="stack"
-        onSubmit={(e: FormEvent) => {
-          e.preventDefault()
-          if (password) void act.run(password)
-        }}
-      >
-        {children}
-        <Field label="Your password" id="step-up-password" hint="Asked again for the commands that take a till out of service or discard what it holds.">
-          <input
-            id="step-up-password"
-            className="input"
-            type="password"
-            autoComplete="current-password"
-            autoFocus
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </Field>
-        {act.error && <ErrorNote error={act.error} />}
-        <div className="form-actions">
-          <button type="button" className="btn ghost" onClick={close}>
-            Cancel
-          </button>
-          <button type="submit" className={`btn ${danger ? 'danger-solid' : 'primary'}`} disabled={!password || act.pending}>
-            {act.pending ? 'Sending…' : confirm}
-          </button>
-        </div>
-      </form>
-    </Dialog>
-  )
-}
 
 /* -------------------------------------------------------- remote fixes ---- */
 

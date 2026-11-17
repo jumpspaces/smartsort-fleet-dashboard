@@ -226,7 +226,47 @@ export interface Shop {
   hasLiveClaimCode: boolean
   claimCodeExpiresAt: string | null
   health: { healthy: number; attention: number; offline: number }
+  /** Set while the shop is closed (until its data is deleted); absent on older servers. */
+  closure?: { status: 'closed'; closedAt: string; purgeAfter: string; purgeApprovedAt: string | null } | null
   machines: ShopMachine[]
+}
+
+/* ------------------------------------------------------- closing a shop --- */
+
+export type ClosureStatus = 'closed' | 'reopened' | 'purged'
+
+export interface ShopClosure {
+  id: string
+  shopId: string
+  shopName: string
+  shopCode: string | null
+  status: ClosureStatus
+  reason: string | null
+  closedAt: string
+  closedBy: string | null
+  closedByLabel: string | null
+  /** The earliest the data may be deleted. */
+  purgeAfter: string
+  purgeApprovedAt: string | null
+  purgeApprovedBy: string | null
+  purgeApprovedByLabel: string | null
+  exportedAt: string | null
+  exportedByLabel: string | null
+  reopenedAt: string | null
+  reopenedByLabel: string | null
+  purgedAt: string | null
+  purgeCounts: Record<string, number> | null
+  purgeError: string | null
+}
+
+export interface ClosureView {
+  status: 'open' | ClosureStatus
+  closure: ShopClosure | null
+  /** When the data goes if nothing changes; null until closed AND approved. */
+  purgeOn: string | null
+  /** Tills holding sales the cloud hasn't got: an export now won't have them. */
+  unsent: { deviceId: string; syncPending: number; lastReportAt: string | null }[]
+  purgeAfterDays: number
 }
 
 /** Why a till was locked — each has its own wording on the till's screen. */

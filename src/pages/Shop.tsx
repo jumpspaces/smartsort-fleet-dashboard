@@ -7,10 +7,11 @@ import { href } from '../lib/router.ts'
 import { Inventory } from './shop/Inventory.tsx'
 import { ShopAssistant } from './shop/ShopAssistant.tsx'
 import { Edition, Machines, ShopActions } from './shop/ShopTools.tsx'
+import { ClosedBanner, ShopClosure } from './shop/ShopClosure.tsx'
 import { ShopTillSettings } from './shop/ShopTillSettings.tsx'
 import { TillHealth } from './Shops.tsx'
 
-const TABS = ['overview', 'stock', 'features', 'tills', 'assistant'] as const
+const TABS = ['overview', 'stock', 'features', 'tills', 'assistant', 'closing'] as const
 type Tab = (typeof TABS)[number]
 const TAB_LABEL: Record<Tab, string> = {
   overview: 'Overview',
@@ -18,6 +19,7 @@ const TAB_LABEL: Record<Tab, string> = {
   features: 'Features',
   tills: 'Till settings',
   assistant: 'Assistant',
+  closing: 'Data & closing',
 }
 
 export function Shop({ id, params }: { id: string; params: URLSearchParams }) {
@@ -79,7 +81,8 @@ export function Shop({ id, params }: { id: string; params: URLSearchParams }) {
       </nav>
       {tab === 'overview' && (
         <>
-          {!shop.activated && (
+          <ClosedBanner shop={shop} href={href(base, { tab: 'closing' })} />
+          {!shop.activated && !shop.closure && (
             <div className="notice warn">
               {shop.hasLiveClaimCode
                 ? `Not set up yet — the setup code expires ${until(shop.claimCodeExpiresAt)}.`
@@ -97,6 +100,7 @@ export function Shop({ id, params }: { id: string; params: URLSearchParams }) {
       {tab === 'features' && <Edition shopId={shop.id} />}
       {tab === 'tills' && <ShopTillSettings shopId={shop.id} />}
       {tab === 'assistant' && <ShopAssistant shopId={shop.id} />}
+      {tab === 'closing' && <ShopClosure shop={shop} />}
     </div>
   )
 }
