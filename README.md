@@ -107,6 +107,26 @@ Three credentials, none of them a shop JWT:
 
 Roles: `viewer` reads, `operator` acts, `admin` also manages accounts.
 
+**Sign-in codes.** Any operator can add a code from an authenticator app
+(Settings → Team → Your sign-in codes): password, scan, first code, then ten
+one-time recovery codes shown once. The secret is sealed with `SECRETS_KEY`; a
+code is never accepted twice. An admin who uses codes can require them of
+everyone, after which a session without one can only set them up. Lost phone
+and recovery codes: an admin clears them (Team → Clear codes), or on the server
+`npm run fleet:operator -- reset-2fa <email>`.
+
+**Closing a shop.** Shop → Data & closing. Download all its data for the owner
+(a zip of CSVs, credentials left out). Closing it (password) refuses its tills'
+sync, check-ins and claims and its staff's cloud sign-in, and takes its tills
+out of the console — nothing is deleted, and reopening undoes it. Its data is
+deleted no sooner than 30 days later, and only after a **second** operator
+agrees; `shop_closure` keeps the record of who, when and how many rows. A
+one-operator team has to add a second account before anything can be deleted.
+
+**Moving the cloud.** Settings → Tills → Cloud address takes a move signed with
+the release key by the "Move tills to a new cloud address" workflow — see
+`server/DEPLOY.md`. The server delivers moves; it cannot make one.
+
 ## What decides "healthy"
 
 `server/src/lib/fleet-health.ts` is the single definition, computed server-side
@@ -264,7 +284,10 @@ edit names and prices without moving stock.
 
 ## Watching the watcher
 
-A monitor cannot alert on its own death. Two outward-facing signals cover it:
+A monitor cannot alert on its own death. `GET /health/deep` answers 200 only
+when the database answers and the evaluator finished a pass in the last five
+minutes — point UptimeRobot at it (server/DEPLOY.md lists the monitors). Two
+more outward-facing signals:
 `FLEET_HEARTBEAT_URL` is pinged after each successful evaluation pass (so an
 external service alerts on *missing* pings), and `GET /fleet/metrics` serves
 Prometheus text behind `FLEET_METRICS_TOKEN` — its own read-only credential,
