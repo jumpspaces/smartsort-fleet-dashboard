@@ -2,6 +2,7 @@ import type { Client } from './client.ts'
 import type {
   Alert,
   AlertState,
+  CloudAddressView,
   Session,
   TwoFactorStatus,
   ClosureView,
@@ -342,6 +343,12 @@ export const setOperatorActive = (c: Client, id: string, active: boolean) =>
   c.post(`/fleet/operators/${enc(id)}/active`, { active })
 export const setOperatorPassword = (c: Client, id: string, password: string) =>
   c.post(`/fleet/operators/${enc(id)}/password`, { password })
+
+/* moving the tills to a new cloud address */
+export const cloudAddress = (c: Client, signal?: AbortSignal) => c.get<CloudAddressView>('/fleet/cloud-address', signal)
+export const setCloudAddress = (c: Client, signed: { statement: string; signature: string }, password: string) =>
+  c.put<CloudAddressView>('/fleet/cloud-address', { ...signed, password })
+export const clearCloudAddress = (c: Client, password: string) => c.del<CloudAddressView>('/fleet/cloud-address', { password })
 
 /* sign-in codes from an authenticator app */
 export const twoFactorStatus = (c: Client, signal?: AbortSignal) => c.get<TwoFactorStatus>('/fleet/me/two-factor', signal)

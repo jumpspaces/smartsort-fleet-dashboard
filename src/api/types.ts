@@ -15,6 +15,14 @@ export interface Operator {
   mfa?: boolean
 }
 
+/** A move of every till to a new cloud address, signed with the release key. */
+export interface CloudAddressView {
+  signed: { statement: string; signature: string } | null
+  move: { apiUrl: string; fleetUrl: string; feedUrl: string; issuedAt: string } | null
+  /** Checked here against the release key; null when the server has no copy of it. */
+  verified: boolean | null
+}
+
 export interface TwoFactorStatus {
   enabled: boolean
   enabledAt: string | null

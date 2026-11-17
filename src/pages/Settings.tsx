@@ -12,6 +12,7 @@ import { invalidate, useAction } from '../lib/query.ts'
 import { href, shopHref, tillHref } from '../lib/router.ts'
 import { useSession } from '../lib/session.tsx'
 import { Schedules, TillDefaults } from './settings/Tills.tsx'
+import { CloudAddress } from './settings/CloudAddress.tsx'
 import { StepUpDialog } from '../components/StepUpDialog.tsx'
 import { TwoFactorCard } from '../components/TwoFactor.tsx'
 
@@ -56,6 +57,7 @@ export function Settings({ params }: { params: URLSearchParams }) {
         <>
           <TillDefaults />
           <Schedules />
+          <CloudAddress />
         </>
       )}
       {tab === 'assistant' && <AssistantSettings />}

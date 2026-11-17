@@ -919,3 +919,35 @@ describe('sign-in codes', () => {
     await waitFor(() => expect(server.calls.find((c) => c.path === '/fleet/operators/op2/two-factor/reset')?.body).toEqual({ password: 'pw' }))
   })
 })
+
+describe('cloud address', () => {
+  it('hands a pasted, signed move to the tills, with a password', async () => {
+    signedIn('admin')
+    const signed = { statement: '{"kind":"smartsort.cloud-address"}', signature: 'c2ln' }
+    const server = fakeServer([
+      ...shellRoutes,
+      { path: '/fleet/till-settings', reply: { fleet: {}, shops: [], devices: [] } },
+      { path: '/fleet/schedules', reply: { schedules: [], schedulable: [] } },
+      { path: '/fleet/commands/catalogue', reply: { commands: [] } },
+      { path: '/fleet/recipes', reply: { recipes: [] } },
+      { path: '/fleet/cloud-address', reply: { signed: null, move: null, verified: null } },
+      {
+        method: 'PUT',
+        path: '/fleet/cloud-address',
+        reply: { signed, move: { apiUrl: 'https://cloud.jumpspaces.co', fleetUrl: 'https://cloud.jumpspaces.co', feedUrl: 'https://cloud.jumpspaces.co/updates', issuedAt: '2026-11-17T10:00:00Z' }, verified: true },
+      },
+    ])
+    render(<App />)
+    await go('#/settings?tab=tills')
+    const box = await screen.findByLabelText('A signed move')
+    fireEvent.change(box, { target: { value: 'not json' } })
+    expect(screen.getByText(/isn't what the workflow prints/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Hand it to the tills…' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(box, { target: { value: JSON.stringify(signed) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Hand it to the tills…' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Your password'), { target: { value: 'pw' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Hand it out' }))
+    await waitFor(() => expect(server.calls.find((c) => c.method === 'PUT' && c.path === '/fleet/cloud-address')?.body).toEqual({ ...signed, password: 'pw' }))
+  })
+})

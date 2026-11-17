@@ -63,7 +63,7 @@ export interface Client {
   get<T>(path: string, signal?: AbortSignal): Promise<T>
   post<T>(path: string, body?: unknown): Promise<T>
   put<T>(path: string, body?: unknown): Promise<T>
-  del<T>(path: string): Promise<T>
+  del<T>(path: string, body?: unknown): Promise<T>
   /** POST a raw text body (the CSV importers take the file itself). */
   postText<T>(path: string, body: string, contentType: string): Promise<T>
   /** A file download, riding the same session handling as everything else. A body makes it a POST. */
@@ -136,7 +136,7 @@ export function createClient(initial: Session, hooks: ClientHooks): Client {
     get: (path, signal) => request(path, { signal }),
     post: (path, body) => request(path, { method: 'POST', body: json(body) }),
     put: (path, body) => request(path, { method: 'PUT', body: json(body) }),
-    del: (path) => request(path, { method: 'DELETE' }),
+    del: (path, body) => request(path, { method: 'DELETE', body: json(body) }),
     postText: (path, body, contentType) => request(path, { method: 'POST', body }, contentType),
     adopt: (next) => {
       session = { apiBase: session.apiBase, ...next }
