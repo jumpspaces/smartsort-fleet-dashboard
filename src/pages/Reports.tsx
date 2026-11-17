@@ -9,17 +9,12 @@ import { ago, bytes, count, date, duration, money, pct, plural } from '../lib/fo
 import { invalidate, useAction } from '../lib/query.ts'
 import { shopHref, tillHref, useSetParams } from '../lib/router.ts'
 import { useSession } from '../lib/session.tsx'
+import { COMMAND_STATE_SHORT, outcomeLine } from '../lib/commands.ts'
 
 /* ============================================================ remote fixes */
 
-const CMD_STATES = ['all', 'pending', 'sent', 'done', 'failed', 'expired'] as const
-const CMD_LABEL: Record<string, string> = {
-  pending: 'Waiting',
-  sent: 'Sent',
-  done: 'Done',
-  failed: 'Failed',
-  expired: 'Never picked up',
-}
+const CMD_STATES = ['all', 'awaiting_approval', 'pending', 'sent', 'done', 'failed', 'expired'] as const
+const CMD_LABEL: Record<string, string> = COMMAND_STATE_SHORT
 
 export function Fixes({ params }: { params: URLSearchParams }) {
   const setParams = useSetParams()
@@ -140,7 +135,16 @@ export function Fixes({ params }: { params: URLSearchParams }) {
                             <span className={`badge ${c.state === 'done' ? 'healthy' : c.state === 'failed' ? 'offline' : c.state === 'expired' ? 'neutral' : 'attention'}`}>
                               {CMD_LABEL[c.state]}
                             </span>
-                            {(c.error || c.result) && <div className="small muted" style={{ maxWidth: 360 }}>{c.error ?? c.result}</div>}
+                            {outcomeLine(c) && (
+                              <div className="small muted" style={{ maxWidth: 360, overflowWrap: 'anywhere' }}>
+                                {(outcomeLine(c) ?? '').slice(0, 240)}
+                              </div>
+                            )}
+                            {c.state === 'awaiting_approval' && (
+                              <div className="small">
+                                <a href={tillHref(c.deviceId)}>Review and approve</a>
+                              </div>
+                            )}
                           </td>
                           <td className="sub">{c.issuedByLabel ?? '—'}</td>
                           <td className="sub">

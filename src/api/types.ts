@@ -84,6 +84,16 @@ export interface Device {
   backupSizeBytes: number | null
   backupError: string | null
   clockSkewMs: number | null
+  /** Until when the till checks in every few seconds — renewed while its page is open. */
+  liveUntil: string | null
+  /** When the shop last rang a sale, by the till's own count of how long ago. */
+  lastSaleAt: string | null
+  /** The remote commands this till's build knows; null on builds from before the list. */
+  capabilities: string[] | null
+  /** Lock, on-screen message and tuned settings, as the TILL reports them. */
+  controlState: DeviceControlState | null
+  /** When "after closing" would be for this till's shop; only on a single till's read. */
+  nextClosingAt?: string | null
   /** Server-computed: the console renders these, it never derives them. */
   state: FleetState
   reasons: HealthReason[]
@@ -185,6 +195,8 @@ export interface Alert {
   rollupCount: number | null
   escalatedAt: string | null
   escalations: number
+  /** What the rule's automatic fix did when this opened, if it has one. */
+  autoFixNote?: string | null
 }
 
 export interface ShopMachine {
@@ -217,24 +229,225 @@ export interface Shop {
   machines: ShopMachine[]
 }
 
+/** Why a till was locked — each has its own wording on the till's screen. */
+export const LOCK_REASONS = ['support_hold', 'decommissioned', 'stolen'] as const
+export type LockReason = (typeof LOCK_REASONS)[number]
+
+export interface DeviceControlState {
+  lock: { reason: LockReason; message: string | null; since: string } | null
+  notice: { text: string; tone: 'info' | 'warn'; until: string } | null
+  config: TillConfig
+  /** The kept settings the till last took up; absent on builds from before them. */
+  version?: string | null
+}
+
+export interface TillConfig {
+  reportIntervalSec?: number
+  backupEveryHours?: number
+}
+export type TillConfigKey = keyof TillConfig
+
+/** Where a setting a till runs under was set. */
+export type SettingSource = 'device' | 'shop' | 'fleet'
+
+interface KeptStamp {
+  since: string
+  by: string | null
+}
+export type KeptLock = { reason: LockReason; message: string | null } & KeptStamp
+export type KeptNotice = { text: string; tone: 'info' | 'warn'; until: string } & KeptStamp
+export type KeptHold = { reason: string | null } & KeptStamp
+
+/**
+ * What the console keeps for a till, at one level — the fleet, a shop or the
+ * till itself. The till takes it up on every check-in, so none of it expires.
+ */
+export interface TillSettingsLevel {
+  lock?: KeptLock | null
+  notice?: KeptNotice | null
+  config?: TillConfig
+  /** Enforced in the cloud: the till's uploads and pulls are turned away. */
+  syncHold?: KeptHold | null
+  /** Enforced in the cloud: no update reaches it. */
+  updateHold?: KeptHold | null
+}
+
+export interface EffectiveSettings {
+  lock: KeptLock | null
+  notice: (KeptNotice & { from: SettingSource }) | null
+  config: TillConfig
+  configFrom: Partial<Record<TillConfigKey, SettingSource>>
+  syncHold: KeptHold | null
+  updateHold: (KeptHold & { from: SettingSource }) | null
+}
+
+export interface DeviceSettingsView {
+  layers: { fleet: TillSettingsLevel; shop: TillSettingsLevel; device: TillSettingsLevel }
+  effective: EffectiveSettings
+  version: string
+  tillVersion: string | null
+  /** Has the till taken them up? Null for a build too old to keep settings. */
+  onTill: boolean | null
+}
+
+export interface NoticeInput {
+  text: string
+  tone: 'info' | 'warn'
+  hours: number
+}
+
+export type ConfigPatch = Partial<Record<TillConfigKey, number | null>>
+
+export interface FleetTillSettings {
+  fleet: TillSettingsLevel
+  shops: { shopId: string; settings: TillSettingsLevel; updatedByLabel: string | null; updatedAt: string }[]
+  devices: { deviceId: string; settings: TillSettingsLevel; shopName: string | null; updatedByLabel: string | null; updatedAt: string }[]
+}
+
+export interface ScheduleResult {
+  issued: number
+  skipped: { deviceId: string; reason: string }[]
+  skippedTotal: number
+}
+
+export interface Schedule {
+  id: string
+  label: string
+  scope: 'fleet' | 'shop' | 'device'
+  target: string
+  /** `recipe:<name>` or `command:<name>`. */
+  action: string
+  payload: Record<string, unknown> | null
+  every: 'day' | 'week'
+  /** 0 = Sunday. */
+  weekday: number | null
+  /** Minutes after midnight, shop time. */
+  atMinute: number
+  whenQuiet: boolean
+  enabled: boolean
+  nextRunAt: string
+  lastRunAt: string | null
+  lastResult: ScheduleResult | null
+  createdByLabel: string | null
+  actionLabel: string
+  targetLabel: string
+}
+
+export interface ScheduleInput {
+  label: string
+  scope: Schedule['scope']
+  target?: string | null
+  action: string
+  payload?: Record<string, unknown>
+  every: Schedule['every']
+  weekday?: number | null
+  atMinute: number
+  whenQuiet?: boolean
+}
+
+/**
+ * How much a command can hurt. `destructive` ones need your password again,
+ * never go out in bulk, and may need a second operator.
+ */
+export type CommandRisk = 'safe' | 'disruptive' | 'destructive'
+
 export interface CommandSpec {
   name: string
   label: string
   description: string
+  risk: CommandRisk
+  /** Can wait for ten minutes without a sale. */
+  quietable: boolean
+  /** Understood by builds that don't list what they understand. */
+  legacy: boolean
 }
+
+export type CommandState = 'awaiting_approval' | 'pending' | 'sent' | 'done' | 'failed' | 'expired'
 
 export interface Command {
   id: string
   deviceId: string
   command: string
-  state: 'pending' | 'sent' | 'done' | 'failed' | 'expired'
+  payload: Record<string, unknown> | null
+  state: CommandState
+  issuedBy: string | null
   issuedByLabel: string | null
   issuedAt: string
+  notBefore: string | null
+  whenQuiet: boolean
+  approvedByLabel: string | null
+  approvedAt: string | null
+  /** Set on each step of a fix recipe. */
+  recipe: string | null
+  recipeRun: string | null
+  /** Tell the team's channels when it finishes. */
+  notify: boolean
+  sentAt: string | null
   completedAt: string | null
   expiresAt: string
   ok: boolean | null
   result: string | null
   error: string | null
+}
+
+/** How to send a command: when, and with what proof. */
+export interface IssueOptions {
+  payload?: Record<string, unknown>
+  /** ISO time; not delivered before it. */
+  notBefore?: string | null
+  whenQuiet?: boolean
+  /** Not before the shop's next closing time. */
+  afterClosing?: boolean
+  /** Tell the team's channels when it finishes (the server picks if unset). */
+  notify?: boolean
+  /** Your password again — only for destructive commands. */
+  password?: string
+}
+
+/** A fix recipe: a few commands always run together, in order. */
+export interface Recipe {
+  name: string
+  label: string
+  description: string
+  steps: string[]
+  stopOnFailure: boolean
+  risk: CommandRisk
+  /** Can be held for a quiet till, a time, or closing. */
+  holdable: boolean
+  /** May go to many tills at once. */
+  bulk: boolean
+}
+
+/** What `Check the hardware` brings back. */
+export interface HardwareReport {
+  ok: boolean
+  items: { part: 'printer' | 'drawer' | 'display'; status: 'ok' | 'missing' | 'not_set' | 'unknown'; detail: string }[]
+}
+
+/** What `List stuck rows` brings back from a till (parsed from the result). */
+export interface StuckRow {
+  ref: string
+  table: string
+  rowRef: string
+  attempts: number
+  error: string | null
+  since: string
+  lastTriedAt: string
+}
+
+export interface StuckRows {
+  received: StuckRow[]
+  receivedTotal: number
+  sending: StuckRow[]
+  sendingTotal: number
+}
+
+/** What `Check the database` brings back. */
+export interface DbCheck {
+  ok: boolean
+  tables: { table: string; rows: number | null; ms: number; error: string | null }[]
+  sizeBytes: number | null
+  ms: number
 }
 
 export interface Note {
@@ -574,6 +787,10 @@ export interface Rule {
   severity: 'warning' | 'critical' | null
   runbookUrl: string | null
   notes: string | null
+  /** The fix it runs on a till when it opens an alert there: `recipe:…` or `command:…`. */
+  autoFix: string | null
+  /** The fixes that suit this rule; empty when it has none. */
+  autoFixChoices: { value: string; label: string }[]
   updatedBy: string | null
 }
 
@@ -598,6 +815,8 @@ export interface FleetSettings {
   escalateAfterMs: number
   escalateMaxTimes: number
   digestHour: number | null
+  /** A second operator must approve locks and discarded rows. */
+  requireCommandApproval: boolean
 }
 
 export interface FleetConfig extends Thresholds, FleetSettings {

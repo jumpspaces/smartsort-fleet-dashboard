@@ -157,6 +157,11 @@ function AlertItem({
               {showSent ? 'Hide who was told' : 'Who was told'}
             </button>
           </div>
+          {a.autoFixNote && (
+            <div className="small sub" style={{ marginTop: 4 }}>
+              Automatic fix: {a.autoFixNote}
+            </div>
+          )}
           {a.escalations > 0 && (
             <div className="small" style={{ color: 'var(--warn)', marginTop: 4 }}>
               Escalated {plural(a.escalations, 'time')}, last <When iso={a.escalatedAt} />

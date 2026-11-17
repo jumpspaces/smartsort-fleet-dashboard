@@ -132,19 +132,99 @@ instead of quietly looking handled.
 
 ## Remote actions
 
-The console can queue work for a terminal: **force sync**, **restart the local
-server**, **collect logs**, **report now**. Delivery rides the existing
+The console can act on a till, not only watch it. Delivery rides the existing
 heartbeat — the terminal asks every ~3 minutes and the response carries whatever
 is waiting — so there is no inbound port to a till behind a domestic router.
 
+**Live mode.** While a till's page is open, the console renews a five-minute
+lease (`POST /fleet/devices/:id/live`) and the report response tells that till
+to check in every 15 seconds instead. The till switches at its next ordinary
+beat; the page says when. Closing the page lets the lease lapse on its own.
+Live beats are recorded in the history at most every 2½ minutes, so watching a
+till does not inflate its uptime.
+
+**What a till can be told to do:**
+
+| | Commands |
+|---|---|
+| Fixes | force sync, report now, back up now, collect logs |
+| Stuck rows | list what it can't apply or send (with the reason for each), retry them now, **discard one received row** |
+| Its screen | show a plain-text message for N hours, take it down, **lock it** (paused by support / retired / missing), unlock it |
+| Settings | heartbeat interval (1–15 min), backup interval (2–24 h) |
+| Upkeep | restart the local server, check the database (reads every table), free disk space (old backups, unused app updates, the previous log) |
+| Updates | install / undo a signed app version (from the Updates page) |
+
 The command set is a fixed allowlist checked on **both** ends
 (`server/src/services/fleet-commands.service.ts` and the switch in
-`admin/electron/fleet-reporter.ts`). There is no shell, no path and no URL in any
-payload: the worst a stolen operator session can do is ask a terminal to restart
-its own backend, which is disruptive, immediately visible, and in the audit log
-with a name against it. Commands expire, only one of each can be outstanding per
-terminal, and a device on the shared enrollment key is never sent any — its
-identity is asserted rather than proven.
+`admin/electron/fleet-reporter.ts`, held together by `scripts/check-lockstep.mjs`).
+There is no shell, no path and no URL in any payload — a stuck row is named by an
+eight-character reference, a setting by its name and a bounded number.
+
+Each till reports the commands its build understands; the console offers only
+those and the server refuses the rest, so an old till is never sent something it
+would answer "unknown command" to.
+
+**How much each command can hurt decides what it takes to send it:**
+
+- *Safe* — one click.
+- *Disruptive* (restart, database check, settings) — can be held until the shop
+  has gone 10 minutes without a sale ("when quiet"), or booked for a time up to a
+  week ahead.
+- *Destructive* (lock, discard a row) — needs the sender's **password again**,
+  never goes out in bulk, and — with Settings → Team → "A second operator must
+  approve them" — waits for a different operator to approve it with *their*
+  password. A stolen session token cannot do either.
+
+Commands expire (an hour by default), only one of each can be outstanding per
+terminal (a newer message or setting replaces a waiting one; an unlock cancels a
+waiting lock), and a device on the shared enrollment key is never sent any.
+
+**A lock, a message and a setting are kept, not sent.** When one is due it is
+saved to the till's *kept settings* (`till_setting`, see
+`server/src/services/fleet-till-settings.service.ts`), and every check-in reply
+carries the whole set back — so a lock waits however long a till is off, a
+reinstalled till picks its settings straight back up, and a hand-edited
+`fleet-control.json` is put back at the next check-in. The till echoes the
+version it holds, which is how the till page says "the till has these" or
+"saved, at its next check-in". Settings come in three levels, the most specific
+winning key by key: **every till** (Settings → Tills), **a shop** (the shop's
+Till settings tab) and **the till itself**. A lock only ever goes on one till.
+
+**Held in the cloud.** Two controls are enforced by the cloud rather than asked
+of the till, so they hold on a till that cannot be trusted to obey:
+
+- *Sync paused* (password again) — the cloud answers the till's uploads and
+  pulls with `423 sync_held`. Nothing is lost: its outbox keeps every row and
+  sends when the pause is lifted. Its heartbeat is not paused, so it can still
+  be locked; its queue raises no alerts while paused. Revoking a till's store key
+  also stops sync, but stops its check-ins too, and with them any lock.
+- *Kept out of updates* (a till, or a whole shop) — no operator and no rollout
+  can send it a version; a rollout lists it as skipped, with the reason.
+
+**Automatic fixes.** An alert rule can name one fix from a short list that suits
+it (Settings → Alert rules): a stuck queue may run *Unstick sync*, a full disk
+*Make room safely*, a dead local server a restart. It runs on the till when the
+rule opens an alert there — once, not on every pass — waits for a quiet till if
+it interrupts sales, and is not tried again for that rule and till for 6 hours
+(4 a day per till in all), nor on a till whose alerts are muted. The alert says
+what it did.
+
+**Schedules** (Settings → Tills) queue ordinary commands on every till they
+cover, daily or weekly at shop time: a Sunday database check, one shop's sync
+unstuck nightly. Nothing destructive, no updates and no settings can be
+scheduled; anything that interrupts trading always waits for a quiet till; tills
+silent for a day are skipped. Each schedule shows what its last run did.
+
+**The lock is a screen lock.** The till's own server keeps running under it, so
+sales already rung still sync and the reporter keeps checking in — which is how
+the unlock arrives. Someone with the machine and a terminal can still reach its
+data; it is for holding a till out of service, not for defeating its owner. A
+locked till does not trip the "no sales today" alert.
+
+**Discarding is receive-side only.** A row this till *received* and cannot apply
+still exists in the cloud and on the till that wrote it; the till backs itself up
+before letting it go. A row this till *wrote* and the cloud refused may be the
+only copy of a sale, so there is no remote command that throws one away.
 
 ## A shop's inventory
 

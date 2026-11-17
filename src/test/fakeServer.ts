@@ -78,6 +78,10 @@ export const device = (over: Record<string, unknown> = {}) => ({
   backupSizeBytes: null,
   backupError: null,
   clockSkewMs: 0,
+  liveUntil: null,
+  lastSaleAt: null,
+  capabilities: null,
+  controlState: null,
   state: 'healthy',
   reasons: [],
   online: true,
@@ -132,4 +136,5 @@ export const shellRoutes: Route[] = [
   { path: '/fleet/assistant', reply: { systemEnabled: false, apiKey: { source: null, unreadable: false } } },
   { path: '/api/stores', reply: { shops: [] } },
   { method: 'POST', path: '/fleet/devices/heartbeats', reply: { strips: [] } },
+  { path: '/fleet/commands/awaiting', reply: { commands: [] } },
 ]

@@ -436,3 +436,259 @@ describe('receiving serial-numbered stock', () => {
     expect(body.lines[0]).toMatchObject({ stock: 2, serials: ['IMEI-1', 'IMEI-2'] })
   })
 })
+
+describe('Till remote control', () => {
+  const CAPS = ['sync.now', 'server.restart', 'till.lock', 'till.unlock', 'notice.show', 'notice.clear', 'pull.inspect']
+  const catalogue = {
+    commands: [
+      { name: 'sync.now', label: 'Force sync now', description: '', risk: 'safe', quietable: false, legacy: true },
+      { name: 'server.restart', label: 'Restart local server', description: '', risk: 'disruptive', quietable: true, legacy: true },
+      { name: 'till.lock', label: 'Lock this till', description: '', risk: 'destructive', quietable: true, legacy: false },
+      { name: 'till.unlock', label: 'Unlock this till', description: '', risk: 'safe', quietable: false, legacy: false },
+      { name: 'notice.show', label: 'Show a message', description: '', risk: 'safe', quietable: false, legacy: false },
+      { name: 'notice.clear', label: 'Remove the message', description: '', risk: 'safe', quietable: false, legacy: false },
+      { name: 'pull.inspect', label: 'List stuck rows', description: '', risk: 'safe', quietable: false, legacy: false },
+    ],
+  }
+  const routes = (d: Record<string, unknown>) => [
+    ...shellRoutes,
+    { path: '/fleet/devices/dev-1', reply: { device: device(d) } },
+    { path: '/fleet/commands', reply: catalogue },
+    { path: '/fleet/devices/dev-1/commands', reply: { commands: [] } },
+    { method: 'POST', path: '/fleet/devices/dev-1/live', reply: { liveUntil: new Date(Date.now() + 300_000).toISOString() } },
+    { method: 'POST', path: '/fleet/devices/dev-1/commands', reply: { command: {} } },
+  ]
+
+  it('keeps the till live while its page is open, and asks for a password to lock it', async () => {
+    signedIn('operator')
+    const server = fakeServer(routes({ capabilities: CAPS }))
+    render(<App />)
+    await go('#/tills/dev-1')
+    fireEvent.click(await screen.findByRole('button', { name: 'Lock…' }))
+    await waitFor(() => expect(server.calls.some((c) => c.method === 'POST' && c.path === '/fleet/devices/dev-1/live')).toBe(true))
+
+    fireEvent.change(await screen.findByLabelText('Message on the lock screen (optional)'), { target: { value: 'Call 0302 000 000' } })
+    const send = screen.getByRole('button', { name: 'Lock the till' }) as HTMLButtonElement
+    expect(send.disabled).toBe(true) // no password yet
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'my-password' } })
+    fireEvent.click(send)
+
+    await waitFor(() => {
+      const post = server.calls.find((c) => c.method === 'POST' && c.path === '/fleet/devices/dev-1/commands')
+      expect(post?.body).toEqual({
+        command: 'till.lock',
+        payload: { reason: 'support_hold', message: 'Call 0302 000 000' },
+        whenQuiet: true,
+        password: 'my-password',
+      })
+    })
+  })
+
+  it('shows the lock the till reports, and offers to lift it', async () => {
+    signedIn('operator')
+    fakeServer(
+      routes({
+        capabilities: CAPS,
+        controlState: { lock: { reason: 'stolen', message: null, since: new Date().toISOString() }, notice: null, config: {} },
+      }),
+    )
+    render(<App />)
+    await go('#/tills/dev-1')
+    expect(await screen.findByText(/Locked from the console/)).toBeTruthy()
+    expect(screen.getAllByText(/Missing or stolen/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Unlock' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Lock…' })).toBeNull()
+  })
+
+  const later = new Date(Date.now() + 4 * 3_600_000).toISOString()
+  const settingsView = (effective: Record<string, unknown> = {}, layers: Record<string, unknown> = {}) => ({
+    layers: { fleet: {}, shop: {}, device: {}, ...layers },
+    effective: { lock: null, notice: null, config: {}, configFrom: {}, syncHold: null, updateHold: null, ...effective },
+    version: 'abc123',
+    tillVersion: 'abc123',
+    onTill: true,
+  })
+
+  it('says where a message on the till comes from, and pauses its sync only with a password', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      {
+        path: '/fleet/devices/dev-1/settings',
+        reply: settingsView({ notice: { text: 'Stocktake tonight', tone: 'info', until: later, since: later, by: 'kofi@x.co', from: 'shop' } }),
+      },
+      { method: 'POST', path: '/fleet/devices/dev-1/holds', reply: settingsView() },
+      ...routes({ capabilities: CAPS }),
+    ])
+    render(<App />)
+    await go('#/tills/dev-1')
+    expect(await screen.findByText(/Showing the message for its whole shop/)).toBeTruthy()
+    expect(screen.getByText(/The till has these/)).toBeTruthy()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pause sync…' }))
+    fireEvent.change(screen.getByLabelText('Why (optional)'), { target: { value: 'Reported stolen' } })
+    const pause = screen.getByRole('button', { name: 'Pause sync' }) as HTMLButtonElement
+    expect(pause.disabled).toBe(true) // no password yet
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'my-password' } })
+    fireEvent.click(pause)
+    await waitFor(() => {
+      const post = server.calls.find((c) => c.method === 'POST' && c.path === '/fleet/devices/dev-1/holds')
+      expect(post?.body).toEqual({ kind: 'sync', on: true, reason: 'Reported stolen', password: 'my-password' })
+    })
+  })
+
+  it('keeps a till out of updates, and sends it lifting a hold its shop did not set', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      {
+        path: '/fleet/devices/dev-1/settings',
+        reply: settingsView({ updateHold: { reason: 'Printer quirk', since: later, by: 'kofi@x.co', from: 'device' } }),
+      },
+      { method: 'POST', path: '/fleet/devices/dev-1/holds', reply: settingsView() },
+      ...routes({ capabilities: CAPS }),
+    ])
+    render(<App />)
+    await go('#/tills/dev-1')
+    expect(await screen.findByText(/“Printer quirk”/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Let it update' }))
+    await waitFor(() => {
+      const post = server.calls.find((c) => c.method === 'POST' && c.path === '/fleet/devices/dev-1/holds')
+      expect(post?.body).toEqual({ kind: 'updates', on: false })
+    })
+  })
+
+  it('offers an older till only what it can run', async () => {
+    signedIn('operator')
+    fakeServer(routes({ capabilities: null, appVersion: '2.2.0' }))
+    render(<App />)
+    await go('#/tills/dev-1')
+    expect(await screen.findByRole('button', { name: 'Force sync now' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Lock…' })).toBeNull()
+    expect(screen.getByText(/need a newer app on this till \(it runs 2\.2\.0\)/)).toBeTruthy()
+  })
+})
+
+describe('Alert rules', () => {
+  const rule = (over: Record<string, unknown>) => ({
+    description: '',
+    enabled: true,
+    severity: null,
+    runbookUrl: null,
+    notes: null,
+    autoFix: null,
+    autoFixChoices: [],
+    updatedBy: null,
+    ...over,
+  })
+
+  it('lets an admin give a rule an automatic fix — only from the fixes that suit it', async () => {
+    signedIn('admin')
+    const server = fakeServer([
+      ...shellRoutes,
+      {
+        path: '/fleet/rules',
+        reply: {
+          rules: [
+            rule({ key: 'sync.failed', label: 'Sync failures', autoFixChoices: [{ value: 'recipe:fix_sync', label: 'Unstick sync' }] }),
+            rule({ key: 'device.offline', label: 'Terminal offline' }),
+          ],
+        },
+      },
+      { method: 'PUT', path: '/fleet/rules/sync.failed', reply: {} },
+    ])
+    render(<App />)
+    await go('#/settings?tab=rules')
+    fireEvent.change(await screen.findByLabelText('Automatic fix for Sync failures'), { target: { value: 'recipe:fix_sync' } })
+    await waitFor(() => expect(server.calls.find((c) => c.method === 'PUT')?.body).toEqual({ autoFix: 'recipe:fix_sync' }))
+    expect(screen.queryByLabelText('Automatic fix for Terminal offline')).toBeNull()
+  })
+})
+
+describe('Tills settings', () => {
+  it('sets a message for every till, and adds a weekly schedule', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      ...shellRoutes,
+      { path: '/fleet/till-settings', reply: { fleet: {}, shops: [], devices: [] } },
+      { method: 'PUT', path: '/fleet/till-settings', reply: { fleet: {} } },
+      { path: '/fleet/schedules', reply: { schedules: [], commands: ['db.check', 'server.restart'] } },
+      { method: 'POST', path: '/fleet/schedules', reply: { schedule: {} } },
+      { path: '/fleet/recipes', reply: { recipes: [] } },
+      {
+        path: '/fleet/commands',
+        reply: {
+          commands: [
+            { name: 'db.check', label: 'Check the database', description: '', risk: 'disruptive', quietable: true, legacy: false },
+            { name: 'pull.skip', label: 'Discard a stuck row', description: '', risk: 'destructive', quietable: false, legacy: false },
+          ],
+        },
+      },
+    ])
+    render(<App />)
+    await go('#/settings?tab=tills')
+    fireEvent.change(await screen.findByLabelText('Show a message'), { target: { value: 'Maintenance at 11pm' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Show on tills' }))
+    await waitFor(() =>
+      expect(server.calls.find((c) => c.method === 'PUT' && c.path === '/fleet/till-settings')?.body).toEqual({
+        notice: { text: 'Maintenance at 11pm', tone: 'info', hours: 24 },
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a schedule' }))
+    const what = (await screen.findByLabelText('What to run')) as HTMLSelectElement
+    // A destructive command is never on offer.
+    expect([...what.options].map((o) => o.textContent)).toEqual(['Choose…', 'Check the database'])
+    fireEvent.change(what, { target: { value: 'command:db.check' } })
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText('When'), { target: { value: '03:30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add schedule' }))
+    await waitFor(() =>
+      expect(server.calls.find((c) => c.method === 'POST' && c.path === '/fleet/schedules')?.body).toEqual({
+        label: 'Check the database',
+        scope: 'fleet',
+        target: null,
+        action: 'command:db.check',
+        every: 'week',
+        weekday: 0,
+        atMinute: 210,
+        whenQuiet: true,
+      }),
+    )
+  })
+})
+
+describe('Shop till settings', () => {
+  it('keeps a whole shop out of updates, with a reason', async () => {
+    signedIn('operator')
+    const shop = {
+      id: 's1',
+      name: 'Kumasi Mart',
+      code: 'KM1',
+      location: null,
+      businessType: 'provisions',
+      currency: 'GHS',
+      createdAt: '2026-10-01T09:00:00Z',
+      owner: null,
+      activated: true,
+      hasLiveClaimCode: false,
+      claimCodeExpiresAt: null,
+      health: { healthy: 1, attention: 0, offline: 0 },
+      machines: [],
+    }
+    const server = fakeServer([
+      ...shellRoutes.filter((r) => r.path !== '/api/stores'),
+      { path: '/api/stores', reply: { shops: [shop] } },
+      { path: '/fleet/shops/s1/till-settings', reply: { fleet: { config: { reportIntervalSec: 600 } }, shop: {} } },
+      { method: 'PUT', path: '/fleet/shops/s1/till-settings', reply: { shop: {} } },
+    ])
+    render(<App />)
+    await go('#/shops/s1?tab=tills')
+    // What the fleet sets shows through until the shop sets its own.
+    const checkIns = (await screen.findByText('(the fleet)')).closest('dd')!
+    expect(checkIns.textContent).toBe('every 10m (the fleet)')
+    fireEvent.change(screen.getByLabelText('Why keep the shop out of updates'), { target: { value: 'Stocktake' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Keep the shop out of updates' }))
+    await waitFor(() =>
+      expect(server.calls.find((c) => c.method === 'PUT')?.body).toEqual({ updateHold: { reason: 'Stocktake' } }),
+    )
+  })
+})

@@ -10,6 +10,7 @@ import type {
   ChannelInput,
   Command,
   CommandHistoryPage,
+  CommandHistoryRow,
   CommandSpec,
   Delivery,
   Device,
@@ -28,6 +29,16 @@ import type {
   GroupPage,
   GroupStatus,
   HeartbeatStrip,
+  IssueOptions,
+  ConfigPatch,
+  DeviceSettingsView,
+  FleetTillSettings,
+  NoticeInput,
+  Schedule,
+  ScheduleInput,
+  ScheduleResult,
+  TillSettingsLevel,
+  Recipe,
   Holiday,
   HolidayFeed,
   ImportResult,
@@ -127,10 +138,92 @@ export const commandCatalogue = async (c: Client, signal?: AbortSignal) =>
 export const deviceCommands = async (c: Client, deviceId: string, signal?: AbortSignal) =>
   (await c.get<{ commands: Command[] }>(`/fleet/devices/${enc(deviceId)}/commands`, signal)).commands
 
-export const issueCommand = async (c: Client, deviceId: string, command: string) =>
-  (await c.post<{ command: Command }>(`/fleet/devices/${enc(deviceId)}/commands`, { command })).command
+export const issueCommand = async (c: Client, deviceId: string, command: string, opts: IssueOptions = {}) =>
+  (
+    await c.post<{ command: Command }>(`/fleet/devices/${enc(deviceId)}/commands`, {
+      command,
+      ...(opts.payload ? { payload: opts.payload } : {}),
+      ...(opts.notBefore ? { notBefore: opts.notBefore } : {}),
+      ...(opts.whenQuiet ? { whenQuiet: true } : {}),
+      ...(opts.afterClosing ? { afterClosing: true } : {}),
+      ...(opts.notify !== undefined ? { notify: opts.notify } : {}),
+      ...(opts.password ? { password: opts.password } : {}),
+    })
+  ).command
 
 export const cancelCommand = (c: Client, id: string) => c.post(`/fleet/commands/${enc(id)}/cancel`)
+
+/** A second operator's yes, with their own password. */
+export const approveCommand = async (c: Client, id: string, password: string) =>
+  (await c.post<{ command: Command }>(`/fleet/commands/${enc(id)}/approve`, { password })).command
+
+export const recipes = async (c: Client, signal?: AbortSignal) =>
+  (await c.get<{ recipes: Recipe[] }>('/fleet/recipes', signal)).recipes
+
+/** Queue a fix recipe's steps as one run. */
+export const issueRecipe = async (
+  c: Client,
+  deviceId: string,
+  recipe: string,
+  opts: Pick<IssueOptions, 'notBefore' | 'whenQuiet' | 'afterClosing' | 'notify'> = {},
+) =>
+  (
+    await c.post<{ commands: Command[] }>(`/fleet/devices/${enc(deviceId)}/recipes`, {
+      recipe,
+      ...(opts.notBefore ? { notBefore: opts.notBefore } : {}),
+      ...(opts.whenQuiet ? { whenQuiet: true } : {}),
+      ...(opts.afterClosing ? { afterClosing: true } : {}),
+      ...(opts.notify !== undefined ? { notify: opts.notify } : {}),
+    })
+  ).commands
+
+/** Everything fleet-wide that is waiting for a second operator. */
+export const awaitingApproval = async (c: Client, signal?: AbortSignal) =>
+  (await c.get<{ commands: CommandHistoryRow[] }>('/fleet/commands/awaiting', signal)).commands
+
+/** What the console keeps for this till, at every level, and whether it has them. */
+export const deviceSettings = (c: Client, deviceId: string, signal?: AbortSignal) =>
+  c.get<DeviceSettingsView>(`/fleet/devices/${enc(deviceId)}/settings`, signal)
+
+/**
+ * Pause a till's sync, or keep it out of updates — both enforced by the cloud.
+ * Pausing sync needs your password; lifting either does not.
+ */
+export const setHold = (
+  c: Client,
+  deviceId: string,
+  kind: 'sync' | 'updates',
+  on: boolean,
+  opts: { reason?: string | null; password?: string } = {},
+) => c.post<DeviceSettingsView>(`/fleet/devices/${enc(deviceId)}/holds`, { kind, on, ...opts })
+
+export const fleetTillSettings = (c: Client, signal?: AbortSignal) => c.get<FleetTillSettings>('/fleet/till-settings', signal)
+export const updateFleetTillSettings = (c: Client, patch: { notice?: NoticeInput | null; config?: ConfigPatch }) =>
+  c.put<{ fleet: TillSettingsLevel }>('/fleet/till-settings', patch)
+
+export const shopTillSettings = (c: Client, shopId: string, signal?: AbortSignal) =>
+  c.get<{ fleet: TillSettingsLevel; shop: TillSettingsLevel }>(`/fleet/shops/${enc(shopId)}/till-settings`, signal)
+export const updateShopTillSettings = (
+  c: Client,
+  shopId: string,
+  patch: { notice?: NoticeInput | null; config?: ConfigPatch; updateHold?: { reason: string | null } | null },
+) => c.put<{ shop: TillSettingsLevel }>(`/fleet/shops/${enc(shopId)}/till-settings`, patch)
+
+export const schedules = (c: Client, signal?: AbortSignal) =>
+  c.get<{ schedules: Schedule[]; commands: string[] }>('/fleet/schedules', signal)
+export const createSchedule = (c: Client, input: ScheduleInput) => c.post<{ schedule: Schedule }>('/fleet/schedules', input)
+export const updateSchedule = (
+  c: Client,
+  id: string,
+  patch: Partial<Pick<Schedule, 'label' | 'enabled' | 'every' | 'weekday' | 'atMinute' | 'whenQuiet'>>,
+) => c.put<{ schedule: Schedule }>(`/fleet/schedules/${enc(id)}`, patch)
+export const deleteSchedule = (c: Client, id: string) => c.del(`/fleet/schedules/${enc(id)}`)
+export const runSchedule = async (c: Client, id: string) =>
+  (await c.post<{ result: ScheduleResult }>(`/fleet/schedules/${enc(id)}/run`)).result
+
+/** Keep this till checking in every few seconds for the next few minutes. */
+export const goLive = (c: Client, deviceId: string) =>
+  c.post<{ liveUntil: string; lastReportAt: string }>(`/fleet/devices/${enc(deviceId)}/live`)
 
 export const notes = async (c: Client, deviceId: string, signal?: AbortSignal) =>
   (await c.get<{ notes: Note[] }>(`/fleet/devices/${enc(deviceId)}/notes`, signal)).notes
@@ -250,7 +343,7 @@ export const rules = async (c: Client, signal?: AbortSignal) => (await c.get<{ r
 export const updateRule = (
   c: Client,
   key: string,
-  patch: { enabled?: boolean; severity?: 'warning' | 'critical' | null; runbookUrl?: string | null },
+  patch: { enabled?: boolean; severity?: 'warning' | 'critical' | null; runbookUrl?: string | null; autoFix?: string | null },
 ) => c.put(`/fleet/rules/${enc(key)}`, patch)
 export const resetRule = (c: Client, key: string) => c.del(`/fleet/rules/${enc(key)}`)
 
@@ -259,7 +352,9 @@ export const fleetConfig = (c: Client, signal?: AbortSignal) =>
 export const updateThresholds = (c: Client, patch: Partial<Thresholds>) => c.put('/fleet/config', patch)
 export const updateSettings = (
   c: Client,
-  patch: Partial<Pick<FleetSettings, 'quietStartMinute' | 'quietEndMinute' | 'quietTimezone' | 'quietBreakthrough' | 'sloTargetBps'>>,
+  patch: Partial<
+    Pick<FleetSettings, 'quietStartMinute' | 'quietEndMinute' | 'quietTimezone' | 'quietBreakthrough' | 'sloTargetBps' | 'requireCommandApproval'>
+  >,
 ) => c.put('/fleet/settings', patch)
 
 export const channels = async (c: Client, signal?: AbortSignal) =>

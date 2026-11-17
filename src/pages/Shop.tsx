@@ -7,11 +7,18 @@ import { href } from '../lib/router.ts'
 import { Inventory } from './shop/Inventory.tsx'
 import { ShopAssistant } from './shop/ShopAssistant.tsx'
 import { Edition, Machines, ShopActions } from './shop/ShopTools.tsx'
+import { ShopTillSettings } from './shop/ShopTillSettings.tsx'
 import { TillHealth } from './Shops.tsx'
 
-const TABS = ['overview', 'stock', 'features', 'assistant'] as const
+const TABS = ['overview', 'stock', 'features', 'tills', 'assistant'] as const
 type Tab = (typeof TABS)[number]
-const TAB_LABEL: Record<Tab, string> = { overview: 'Overview', stock: 'Stock', features: 'Features', assistant: 'Assistant' }
+const TAB_LABEL: Record<Tab, string> = {
+  overview: 'Overview',
+  stock: 'Stock',
+  features: 'Features',
+  tills: 'Till settings',
+  assistant: 'Assistant',
+}
 
 export function Shop({ id, params }: { id: string; params: URLSearchParams }) {
   const shops = useShops()
@@ -88,6 +95,7 @@ export function Shop({ id, params }: { id: string; params: URLSearchParams }) {
       )}
       {tab === 'stock' && <Inventory shop={shop} />}
       {tab === 'features' && <Edition shopId={shop.id} />}
+      {tab === 'tills' && <ShopTillSettings shopId={shop.id} />}
       {tab === 'assistant' && <ShopAssistant shopId={shop.id} />}
     </div>
   )

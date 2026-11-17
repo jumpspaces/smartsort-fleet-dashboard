@@ -1,17 +1,10 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import * as api from '../api/endpoints.ts'
-import type { Command, Device } from '../api/types.ts'
+import type { Device } from '../api/types.ts'
 import { HttpError } from '../api/client.ts'
 import { Card, Empty, ErrorNote, Live, Loadable, PageHeader, StateBadge, Strip, When } from '../components/ui.tsx'
-import {
-  useCommandCatalogue,
-  useDevice,
-  useDeviceCommands,
-  useDeviceErrors,
-  useHeartbeats,
-  useNotes,
-  useShopIndex,
-} from '../data.ts'
+import { useDevice, useDeviceErrors, useDeviceSettings, useHeartbeats, useNotes, useShopIndex } from '../data.ts'
+import { liveState, LOCK_REASON_LABEL } from '../lib/commands.ts'
 import { ago, bytes, count, duration, exact, money, plural, until } from '../lib/format.ts'
 import { reasonPlain, tillName } from '../lib/plain.ts'
 import { invalidate, useAction } from '../lib/query.ts'
@@ -19,9 +12,14 @@ import { href, shopHref } from '../lib/router.ts'
 import { useSession } from '../lib/session.tsx'
 import { ConfirmButton } from '../components/forms.tsx'
 import { Fortnight, Tags, Timeline, TillActions, TwoDays } from './till/TillExtras.tsx'
+import { CloudHolds, RemoteFixes, StuckRows, TillScreen, TillSettings, useLiveLease } from './till/Control.tsx'
 
 export function Till({ id }: { id: string }) {
-  const device = useDevice(id)
+  // Polled faster while the till is live and its numbers move by the second.
+  const [every, setEvery] = useState(30_000)
+  const device = useDevice(id, every)
+  const live = device.data ? liveState(device.data) !== 'off' : false
+  useEffect(() => setEvery(live ? 10_000 : 30_000), [live])
   const back = { href: href('/tills'), label: 'Tills' }
 
   if (!device.data) {
@@ -47,7 +45,22 @@ export function Till({ id }: { id: string }) {
     )
   }
 
-  const d = device.data
+  return <TillPage d={device.data} device={device} back={back} />
+}
+
+function TillPage({
+  d,
+  device,
+  back,
+}: {
+  d: Device
+  device: ReturnType<typeof useDevice>
+  back: { href: string; label: string }
+}) {
+  // While this page is open the till checks in every few seconds.
+  useLiveLease(d)
+  const lock = d.controlState?.lock
+  const syncHold = useDeviceSettings(d.deviceId).data?.effective.syncHold
   return (
     <div className="stack">
       <PageHeader
@@ -79,6 +92,19 @@ export function Till({ id }: { id: string }) {
           This till was taken off its shop {ago(d.removedAt)}. It no longer counts towards the shop's health or alerts.
         </div>
       )}
+      {lock && (
+        <div className="notice warn">
+          Locked from the console {ago(lock.since)} — {LOCK_REASON_LABEL[lock.reason].label}. Nobody can sell on it until it is unlocked
+          under Till screen.
+        </div>
+      )}
+      {syncHold && (
+        <div className="notice warn">
+          Sync paused from the console {ago(syncHold.since)}
+          {syncHold.reason ? ` — “${syncHold.reason}”` : ''}. What it rings stays on the till until the pause is lifted under Held in the
+          cloud.
+        </div>
+      )}
       {d.mute && (
         <div className="notice info">
           Alerts muted {until(d.mute.endsAt)} — “{d.mute.reason}”
@@ -95,7 +121,11 @@ export function Till({ id }: { id: string }) {
         </div>
         <div className="stack">
           <Uptime id={d.deviceId} />
-          <Actions d={d} />
+          <RemoteFixes d={d} />
+          <TillScreen d={d} />
+          <StuckRows d={d} />
+          <TillSettings d={d} />
+          <CloudHolds d={d} />
           <Notes id={d.deviceId} />
           <Tags d={d} />
           <TwoDays d={d} />
@@ -167,9 +197,10 @@ function Vitals({ d }: { d: Device }) {
           {d.serverHealthy == null ? '—' : d.serverHealthy ? 'Yes' : 'No'}
           {d.appUptimeSec != null && <span className="small muted"> · up {duration(d.appUptimeSec * 1000)}</span>}
         </Fact>
-        <Fact label="Sales today">
+        <Fact label="Sales today" title={d.lastSaleAt ? `Last sale ${exact(d.lastSaleAt)}` : undefined}>
           {money(d.salesTodayPesewas, currency)}
           <span className="small muted"> · {count(d.salesTodayCount)}</span>
+          {d.lastSaleAt && <span className="small muted"> · last sale {ago(d.lastSaleAt)}</span>}
         </Fact>
         <Fact label="Waiting to send" tone={tone(has('sync_failed'), has('sync_stuck', 'sync_deep'))}>
           {count(d.syncPending)}
@@ -239,99 +270,6 @@ function Uptime({ id }: { id: string }) {
           </div>
         </>
       )}
-    </Card>
-  )
-}
-
-/** Installing or reverting a version needs one named — that's the Updates page. */
-const NEEDS_PAYLOAD = new Set(['app.bundle', 'app.revert'])
-
-const COMMAND_STATE: Record<Command['state'], string> = {
-  pending: 'Waiting for the till',
-  sent: 'Sent to the till',
-  done: 'Done',
-  failed: 'Failed',
-  expired: 'Till never picked it up',
-}
-
-function Actions({ d }: { d: Device }) {
-  const { client, canAct } = useSession()
-  const catalogue = useCommandCatalogue()
-  const history = useDeviceCommands(d.deviceId)
-  const issue = useAction(async (name: string) => {
-    await api.issueCommand(client, d.deviceId, name)
-    invalidate(`commands:${d.deviceId}`)
-  })
-  const cancel = useAction(async (cmdId: string) => {
-    await api.cancelCommand(client, cmdId)
-    invalidate(`commands:${d.deviceId}`)
-  })
-  const outstanding = new Set(
-    (history.data ?? []).filter((c) => c.state === 'pending' || c.state === 'sent').map((c) => c.command),
-  )
-  // A till on the shared enrollment key never gets commands — its identity is
-  // only claimed, not proven — so don't offer buttons that can't work.
-  const blocked = !d.keyVerified
-
-  return (
-    <Card title="Remote fixes" sub="Delivered the next time the till checks in, within about 3 minutes.">
-      <div className="stack" style={{ gap: 12 }}>
-        {blocked ? (
-          <div className="notice info">Remote fixes become available once this till is linked to its shop.</div>
-        ) : !canAct ? (
-          <div className="notice info">Your account can view tills but not send fixes.</div>
-        ) : (
-          <Loadable q={catalogue} rows={2}>
-            {(specs) => (
-              <div className="row">
-                {specs.filter((s) => !NEEDS_PAYLOAD.has(s.name)).map((s) => (
-                  <button
-                    key={s.name}
-                    className="btn sm"
-                    title={s.description}
-                    disabled={issue.pending || outstanding.has(s.name)}
-                    onClick={() => void issue.run(s.name)}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </Loadable>
-        )}
-        {issue.error && <ErrorNote error={issue.error} />}
-        {cancel.error && <ErrorNote error={cancel.error} />}
-        {(history.data ?? []).length > 0 && (
-          <ul className="list" style={{ margin: '0 -16px -16px', borderTop: '1px solid var(--line)' }}>
-            {(history.data ?? []).slice(0, 6).map((c) => {
-              const label = catalogue.data?.find((s) => s.name === c.command)?.label ?? c.command
-              const open = c.state === 'pending' || c.state === 'sent'
-              return (
-                <li key={c.id}>
-                  <div className="spread">
-                    <span style={{ fontWeight: 550 }}>{label}</span>
-                    <span className="small muted">
-                      <When iso={c.issuedAt} />
-                    </span>
-                  </div>
-                  <div className="spread small">
-                    <span className={c.state === 'failed' ? '' : 'sub'} style={c.state === 'failed' ? { color: 'var(--bad)' } : undefined}>
-                      {COMMAND_STATE[c.state]}
-                      {c.error ? ` — ${c.error}` : c.result ? ` — ${c.result}` : ''}
-                    </span>
-                    {open && canAct && c.state === 'pending' && (
-                      <button className="btn sm ghost" disabled={cancel.pending} onClick={() => void cancel.run(c.id)}>
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                  {c.issuedByLabel && <div className="small muted">by {c.issuedByLabel}</div>}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </div>
     </Card>
   )
 }

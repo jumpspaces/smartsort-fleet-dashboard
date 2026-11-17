@@ -11,6 +11,7 @@ import { count, date, until } from '../lib/format.ts'
 import { invalidate, useAction } from '../lib/query.ts'
 import { href, shopHref, tillHref } from '../lib/router.ts'
 import { useSession } from '../lib/session.tsx'
+import { Schedules, TillDefaults } from './settings/Tills.tsx'
 
 const TABS = [
   { id: 'team', label: 'Team' },
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'detection', label: 'Detection' },
   { id: 'notify', label: 'Notifications' },
   { id: 'quiet', label: 'Quiet periods' },
+  { id: 'tills', label: 'Tills' },
   { id: 'assistant', label: 'Assistant' },
   { id: 'festive', label: 'Festive days' },
 ] as const
@@ -36,11 +38,22 @@ export function Settings({ params }: { params: URLSearchParams }) {
           </a>
         ))}
       </nav>
-      {tab === 'team' && <Team />}
+      {tab === 'team' && (
+        <>
+          <Team />
+          <CommandSafety />
+        </>
+      )}
       {tab === 'rules' && <Rules />}
       {tab === 'detection' && <Detection />}
       {tab === 'notify' && <Notifications />}
       {tab === 'quiet' && <QuietPeriods />}
+      {tab === 'tills' && (
+        <>
+          <TillDefaults />
+          <Schedules />
+        </>
+      )}
       {tab === 'assistant' && <AssistantSettings />}
       {tab === 'festive' && <Festive />}
     </div>
@@ -208,6 +221,48 @@ function AddOperator({ open, onClose }: { open: boolean; onClose: () => void }) 
   )
 }
 
+/**
+ * The two-person rule for the drastic remote commands. Every one of them
+ * already asks for the sender's password; this adds a second operator.
+ */
+function CommandSafety() {
+  const { client, session } = useSession()
+  const isAdmin = session.operator.role === 'admin'
+  const cfg = useApi('config', (c, s) => api.fleetConfig(c, s))
+  const save = useAction(async (on: boolean) => {
+    await api.updateSettings(client, { requireCommandApproval: on })
+    invalidate('config')
+  })
+  return (
+    <Card title="Locking tills and discarding rows" sub="The remote commands that take a till out of service or throw away what it holds.">
+      <Loadable q={cfg} rows={2}>
+        {({ config }) => (
+          <div className="stack" style={{ gap: 10 }}>
+            <div className="spread">
+              <div>
+                <div style={{ fontWeight: 550 }}>A second operator must approve them</div>
+                <div className="small sub">
+                  {config.requireCommandApproval
+                    ? 'On. A lock or a discarded row waits until someone other than its sender approves it, with their own password.'
+                    : 'Off. The sender’s own password is enough. Turn this on once the team has two people who can act.'}
+                </div>
+              </div>
+              <Toggle
+                label="Require a second operator"
+                checked={config.requireCommandApproval}
+                disabled={!isAdmin || save.pending}
+                onChange={(on) => void save.run(on)}
+              />
+            </div>
+            {!isAdmin && <AdminOnly />}
+            <ActionError error={save.error} />
+          </div>
+        )}
+      </Loadable>
+    </Card>
+  )
+}
+
 function SetPassword({ id, onClose }: { id: string | null; onClose: () => void }) {
   const { client } = useSession()
   const [password, setPassword] = useState('')
@@ -258,7 +313,11 @@ function Rules() {
     invalidate('rules')
   })
   return (
-    <Card title="Alert rules" sub="What raises an alert, and how urgent it is." flush>
+    <Card
+      title="Alert rules"
+      sub="What raises an alert, how urgent it is, and what to run about it. A rule with a fix runs it on the till when it opens an alert there — at most once in 6 hours for that till, never while its alerts are muted."
+      flush
+    >
       {!isAdmin && (
         <div style={{ padding: '12px 16px 0' }}>
           <AdminOnly />
@@ -293,6 +352,22 @@ function Rules() {
                       <option value="warning">Warning</option>
                       <option value="critical">Urgent</option>
                     </select>
+                    {r.autoFixChoices.length > 0 && (
+                      <select
+                        className="select"
+                        aria-label={`Automatic fix for ${r.label}`}
+                        disabled={!isAdmin || save.pending}
+                        value={r.autoFix ?? ''}
+                        onChange={(e) => void save.run(r.key, { autoFix: e.target.value || null })}
+                      >
+                        <option value="">Alert only</option>
+                        {r.autoFixChoices.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            Then run: {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <Toggle
                       label={`${r.label} on`}
                       checked={r.enabled}

@@ -22,9 +22,10 @@ export function useDevices(q: DeviceQuery) {
   return useQuery(`devices:${JSON.stringify(q)}`, (s) => api.devices(client, q, s), { every: LIVE })
 }
 
-export function useDevice(id: string) {
+/** `every` shortens the poll while a till is in live mode and changing by the second. */
+export function useDevice(id: string, every = LIVE) {
   const { client } = useSession()
-  return useQuery(`device:${id}`, (s) => api.device(client, id, s), { every: LIVE })
+  return useQuery(`device:${id}`, (s) => api.device(client, id, s), { every })
 }
 
 export function useHeartbeats(ids: string[]) {
@@ -41,14 +42,31 @@ export function useDeviceErrors(id: string) {
   return useQuery(`errors:${id}`, (s) => api.deviceErrors(client, id, s), { every: SLOW })
 }
 
-export function useDeviceCommands(id: string) {
+export function useDeviceCommands(id: string, every = 15_000) {
   const { client } = useSession()
-  return useQuery(`commands:${id}`, (s) => api.deviceCommands(client, id, s), { every: 15_000 })
+  return useQuery(`commands:${id}`, (s) => api.deviceCommands(client, id, s), { every })
+}
+
+/** Fixes waiting for a second operator, fleet-wide. */
+export function useAwaitingApproval() {
+  const { client } = useSession()
+  return useQuery('commands:awaiting', (s) => api.awaitingApproval(client, s), { every: LIVE })
 }
 
 export function useCommandCatalogue() {
   const { client } = useSession()
   return useQuery('catalogue', (s) => api.commandCatalogue(client, s))
+}
+
+export function useRecipes() {
+  const { client } = useSession()
+  return useQuery('recipes', (s) => api.recipes(client, s))
+}
+
+/** What the console keeps for a till, and whether the till has taken it up. */
+export function useDeviceSettings(id: string, every = 15_000) {
+  const { client } = useSession()
+  return useQuery(`settings:${id}`, (s) => api.deviceSettings(client, id, s), { every })
 }
 
 export function useNotes(id: string) {

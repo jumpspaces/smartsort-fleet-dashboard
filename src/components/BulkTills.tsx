@@ -2,6 +2,7 @@ import { useState } from 'react'
 import * as api from '../api/endpoints.ts'
 import type { Device, DeviceQuery } from '../api/types.ts'
 import { useCommandCatalogue } from '../data.ts'
+import { supportedCommands } from '../lib/commands.ts'
 import { plural } from '../lib/format.ts'
 import { tillName } from '../lib/plain.ts'
 import { pool } from '../lib/pool.ts'
@@ -15,11 +16,22 @@ import { ActionError, Dialog, Field } from './forms.tsx'
  * would let someone act on rows they never saw.
  *
  * Only harmless fixes are offered. Restarting forty shops' tills from one
- * button is an outage, so that stays on a single till's page.
+ * button is an outage, so that stays on a single till's page — as does
+ * anything the server calls destructive, which it refuses in bulk anyway by
+ * asking for a password per till.
+ *
+ * A message is the one screen change that makes sense fleet-wide ("we're
+ * updating every till tonight"), so it is here; a lock is not.
  */
-const SAFE_COMMANDS = ['sync.now', 'report.now', 'backup.now']
+const SAFE_COMMANDS = ['sync.now', 'report.now', 'backup.now', 'pull.retry', 'notice.clear']
 
-type Action = { kind: 'command'; name: string } | { kind: 'silence' } | { kind: 'label' }
+type Action =
+  | { kind: 'command'; name: string }
+  | { kind: 'notice' }
+  | { kind: 'silence' }
+  | { kind: 'label' }
+
+const NOTICE_HOURS = [1, 4, 8, 24, 48, 72, 168]
 
 const DURATIONS = [
   { label: '1 hour', minutes: 60 },
@@ -36,20 +48,27 @@ export function BulkTills({ query, total }: { query: DeviceQuery; total: number 
   const [reason, setReason] = useState('')
   const [minutes, setMinutes] = useState(240)
   const [label, setLabel] = useState('')
+  const [text, setText] = useState('')
+  const [tone, setTone] = useState<'info' | 'warn'>('info')
+  const [hours, setHours] = useState(24)
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<{ done: number; of: number } | null>(null)
   const [result, setResult] = useState<{ ok: number; skipped: number; failed: { item: Device; error: string }[] } | null>(null)
   const [error, setError] = useState<Error | null>(null)
 
   if (!canAct) return null
-  const commands = (catalogue.data ?? []).filter((c) => SAFE_COMMANDS.includes(c.name))
+  const specs = catalogue.data ?? []
+  const commands = specs.filter((c) => SAFE_COMMANDS.includes(c.name))
   const parsed: Action | null = action.startsWith('cmd:')
     ? { kind: 'command', name: action.slice(4) }
-    : action === 'silence'
-      ? { kind: 'silence' }
-      : action === 'label'
-        ? { kind: 'label' }
-        : null
+    : action === 'notice'
+      ? { kind: 'notice' }
+      : action === 'silence'
+        ? { kind: 'silence' }
+        : action === 'label'
+          ? { kind: 'label' }
+          : null
+  const commandName = parsed?.kind === 'command' ? parsed.name : parsed?.kind === 'notice' ? 'notice.show' : null
 
   async function run() {
     if (!parsed) return
@@ -58,14 +77,20 @@ export function BulkTills({ query, total }: { query: DeviceQuery; total: number 
     setResult(null)
     try {
       const all = await api.allDevices(client, query)
-      // Commands only reach tills that proved who they are.
-      const targets = parsed.kind === 'command' ? all.filter((d) => d.keyVerified && !d.removedAt) : all
+      // Commands only reach tills that proved who they are, and only ones
+      // whose app knows the command — the server would refuse the rest.
+      const targets = commandName
+        ? all.filter((d) => d.keyVerified && !d.removedAt && supportedCommands(d, specs).has(commandName))
+        : all
       setProgress({ done: 0, of: targets.length })
       const r = await pool(
         targets,
         5,
         (d) => {
           if (parsed.kind === 'command') return api.issueCommand(client, d.deviceId, parsed.name)
+          if (parsed.kind === 'notice') {
+            return api.issueCommand(client, d.deviceId, 'notice.show', { payload: { text: text.trim(), tone, hours } })
+          }
           if (parsed.kind === 'silence') return api.openMute(client, { scope: 'device', deviceId: d.deviceId, minutes, reason: reason.trim() })
           return api.addTag(client, d.deviceId, label.trim().toLowerCase())
         },
@@ -90,7 +115,11 @@ export function BulkTills({ query, total }: { query: DeviceQuery; total: number 
     setProgress(null)
     setError(null)
   }
-  const ready = parsed && (parsed.kind !== 'silence' || reason.trim()) && (parsed.kind !== 'label' || label.trim())
+  const ready =
+    parsed &&
+    (parsed.kind !== 'silence' || reason.trim()) &&
+    (parsed.kind !== 'label' || label.trim()) &&
+    (parsed.kind !== 'notice' || text.trim())
 
   return (
     <>
@@ -109,6 +138,7 @@ export function BulkTills({ query, total }: { query: DeviceQuery; total: number 
                     {c.label}
                   </option>
                 ))}
+                {specs.some((c) => c.name === 'notice.show') && <option value="notice">Show a message</option>}
               </optgroup>
               <optgroup label="Console">
                 <option value="silence">Silence alerts</option>
@@ -117,7 +147,43 @@ export function BulkTills({ query, total }: { query: DeviceQuery; total: number 
             </select>
           </Field>
           {parsed?.kind === 'command' && (
-            <div className="hint">{commands.find((c) => c.name === parsed.name)?.description} Tills not yet linked to their shop are skipped.</div>
+            <div className="hint">
+              {commands.find((c) => c.name === parsed.name)?.description} Tills not yet linked to their shop, or on an app too old for it, are
+              skipped.
+            </div>
+          )}
+          {parsed?.kind === 'notice' && (
+            <>
+              <Field label="Message" id="bn" hint={`Plain text, shown in a corner of every screen. ${280 - text.length} characters left.`}>
+                <textarea
+                  id="bn"
+                  className="textarea"
+                  rows={2}
+                  maxLength={280}
+                  value={text}
+                  onChange={(e) => setText(e.target.value.replace(/[\r\n]+/g, ' '))}
+                  placeholder="e.g. We're updating every till after closing tonight — please leave them switched on."
+                />
+              </Field>
+              <div className="form-grid">
+                <Field label="Tone" id="bt">
+                  <select id="bt" className="select" value={tone} onChange={(e) => setTone(e.target.value as 'info' | 'warn')}>
+                    <option value="info">Note</option>
+                    <option value="warn">Warning</option>
+                  </select>
+                </Field>
+                <Field label="For" id="bh">
+                  <select id="bh" className="select" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+                    {NOTICE_HOURS.map((h) => (
+                      <option key={h} value={h}>
+                        {h < 24 ? plural(h, 'hour') : plural(h / 24, 'day')}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+              <div className="hint">Replaces any message already waiting for a till. Tills on an app too old for messages are skipped.</div>
+            </>
           )}
           {parsed?.kind === 'silence' && (
             <div className="form-grid">
@@ -149,7 +215,7 @@ export function BulkTills({ query, total }: { query: DeviceQuery; total: number 
           {result && (
             <div className={`notice ${result.failed.length ? 'warn' : 'info'}`} style={{ display: 'block' }}>
               Done for {plural(result.ok, 'till')}.
-              {result.skipped > 0 && ` Skipped ${result.skipped} not linked to their shop.`}
+              {result.skipped > 0 && ` Skipped ${result.skipped} not linked to their shop or on an app too old for it.`}
               {result.failed.length > 0 && (
                 <>
                   {' '}
