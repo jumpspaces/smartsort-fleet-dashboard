@@ -95,7 +95,7 @@ export function Shop({ id, params }: { id: string; params: URLSearchParams }) {
           )}
           <ShopTills shop={shop} />
           <div className="grid-2">
-            <Machines machines={shop.machines} />
+            <Machines machines={shop.machines} shopId={shop.id} />
             <About shop={shop} />
           </div>
         </>

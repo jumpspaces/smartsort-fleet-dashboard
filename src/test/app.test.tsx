@@ -1089,3 +1089,39 @@ describe('accounts', () => {
     expect(screen.getByText('Last update failed: no space')).toBeTruthy()
   })
 })
+
+describe('machines', () => {
+  const machine = (over: Record<string, unknown>) => ({
+    keyId: 'k1', machineId: 'm1', machineName: 'cash', terminalCode: 'T9', mode: 'peer', keyPrefix: 'ss_store_d7', createdAt: '2026-09-30T09:00:00Z',
+    lastSeenAt: null, revokedAt: null, removedAt: null, lastReportAt: null, ...over,
+  })
+  const shop = (machines: unknown[]) => ({
+    id: 's1', name: 'Ressy', code: 'RESS-1413', location: null, phone: null, currency: 'GHS', createdAt: '2026-08-08T09:00:00Z', owner: null,
+    activated: true, hasLiveClaimCode: false, claimCodeExpiresAt: null, health: { healthy: 0, attention: 0, offline: 0 }, machines, closure: null,
+  })
+
+  it('renumbers a till to a number never used, and deletes a removed one for good', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      ...shellRoutes.filter((r) => r.path !== '/api/stores'),
+      { path: '/api/stores', reply: { shops: [shop([machine({}), machine({ keyId: 'k2', machineName: 'Temp', terminalCode: 'T8', revokedAt: '2026-09-29T09:00:00Z', removedAt: '2026-09-29T09:00:00Z' })])] } },
+      { path: '/fleet/devices', reply: { devices: [], total: 0, limit: 200, offset: 0 } },
+      { path: '/api/stores/s1/terminal-codes', reply: { free: ['T2', 'T4', 'T10'], spent: ['T1', 'T3', 'T5', 'T6', 'T7', 'T8', 'T9'] } },
+      { method: 'POST', path: '/api/stores/keys/k1/terminal-code', reply: { from: 'T9', to: 'T2' } },
+      { method: 'POST', path: '/api/stores/keys/k2/delete', reply: { terminalCode: 'T8', codeRetired: true } },
+    ])
+    render(<App />)
+    await go('#/shops/s1')
+    fireEvent.click(await screen.findByRole('button', { name: 'Change number' }))
+    fireEvent.change(await screen.findByLabelText('New number (now T9)'), { target: { value: 'T2' } })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Change number' }))
+    await waitFor(() => expect(server.calls.find((c) => c.path === '/api/stores/keys/k1/terminal-code')?.body).toEqual({ code: 'T2' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show 1 removed' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete for good' }))
+    const dialog = screen.getAllByRole('dialog').find((d) => within(d).queryByLabelText('Your password'))!
+    fireEvent.change(within(dialog).getByLabelText('Your password'), { target: { value: 'pw' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete for good' }))
+    await waitFor(() => expect(server.calls.find((c) => c.path === '/api/stores/keys/k2/delete')?.body).toEqual({ password: 'pw' }))
+  })
+})

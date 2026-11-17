@@ -3,6 +3,7 @@ import * as api from '../../api/endpoints.ts'
 import { BUSINESS_TYPE_LABELS, BUSINESS_TYPES, type BusinessType, type Shop, type ShopMachine } from '../../api/types.ts'
 import { ActionError, CodeReveal, ConfirmButton, Dialog, Field, Toggle } from '../../components/forms.tsx'
 import { Card, Empty, Loadable, When } from '../../components/ui.tsx'
+import { StepUpDialog } from '../../components/StepUpDialog.tsx'
 import { useApi } from '../../data.ts'
 import { date, until } from '../../lib/format.ts'
 import { invalidate, useAction } from '../../lib/query.ts'
@@ -135,7 +136,7 @@ export function MuteDialog({
 
 /* -------------------------------------------------------------- machines */
 
-export function Machines({ machines }: { machines: ShopMachine[] }) {
+export function Machines({ machines, shopId }: { machines: ShopMachine[]; shopId: string }) {
   const [showRemoved, setShowRemoved] = useState(false)
   const current = machines.filter((m) => !m.removedAt)
   const removed = machines.filter((m) => m.removedAt)
@@ -158,7 +159,7 @@ export function Machines({ machines }: { machines: ShopMachine[] }) {
       ) : (
         <ul className="list">
           {shown.map((m) => (
-            <MachineItem key={m.keyId} m={m} />
+            <MachineItem key={m.keyId} m={m} shopId={shopId} />
           ))}
         </ul>
       )}
@@ -166,9 +167,10 @@ export function Machines({ machines }: { machines: ShopMachine[] }) {
   )
 }
 
-function MachineItem({ m }: { m: ShopMachine }) {
+function MachineItem({ m, shopId }: { m: ShopMachine; shopId: string }) {
   const { client, canAct } = useSession()
   const [renaming, setRenaming] = useState(false)
+  const [dialog, setDialog] = useState<'number' | 'delete' | null>(null)
   const [name, setName] = useState(m.machineName ?? '')
   const act = useAction(async (fn: () => Promise<unknown>) => {
     await fn()
@@ -229,6 +231,11 @@ function MachineItem({ m }: { m: ShopMachine }) {
                 Rename
               </button>
             )}
+            {!m.removedAt && (
+              <button className="btn sm ghost" onClick={() => setDialog('number')}>
+                Change number
+              </button>
+            )}
             {!m.revokedAt && !m.removedAt && (
               <ConfirmButton danger confirm="Revoke link" disabled={act.pending} onConfirm={() => void act.run(() => api.revokeKey(client, m.keyId))}>
                 Revoke
@@ -239,16 +246,98 @@ function MachineItem({ m }: { m: ShopMachine }) {
                 Remove
               </ConfirmButton>
             ) : (
-              <button className="btn sm" disabled={act.pending} onClick={() => void act.run(() => api.restoreMachine(client, m.keyId))}>
-                Put back
-              </button>
+              <>
+                <button className="btn sm" disabled={act.pending} onClick={() => void act.run(() => api.restoreMachine(client, m.keyId))}>
+                  Put back
+                </button>
+                <button className="btn sm danger" disabled={act.pending} onClick={() => setDialog('delete')}>
+                  Delete for good
+                </button>
+              </>
             )}
           </span>
         )}
       </div>
       {m.removedAt && <div className="small muted">Putting it back makes it visible again; it stays unlinked until it reconnects.</div>}
       <ActionError error={act.error} />
+      {dialog === 'number' && <ChangeNumber m={m} shopId={shopId} onClose={() => setDialog(null)} />}
+      <StepUpDialog
+        open={dialog === 'delete'}
+        title={`Delete ${m.machineName || m.terminalCode} for good`}
+        confirm="Delete for good"
+        danger
+        hint="Asked again because this can't be undone."
+        onClose={() => setDialog(null)}
+        onConfirm={async (password) => {
+          await api.deleteMachine(client, m.keyId, password)
+          invalidate('shops')
+          invalidate('device')
+          invalidate('devices')
+        }}
+      >
+        <p className="small" style={{ margin: 0 }}>
+          The machine leaves the shop and the console, with its check-in history, alerts and notes. The sales it rang stay with the shop, and{' '}
+          {m.terminalCode} is never given to another till. If this computer is ever set up again, it joins as a new till.
+        </p>
+      </StepUpDialog>
     </li>
+  )
+}
+
+/**
+ * Pick a till number never used in the shop. The old one is retired — its
+ * receipts exist — and the till takes up the new one at its next sync.
+ */
+function ChangeNumber({ m, shopId, onClose }: { m: ShopMachine; shopId: string; onClose: () => void }) {
+  const { client } = useSession()
+  const q = useApi(`terminalcodes:${shopId}`, (c, s) => api.terminalCodes(c, shopId, s))
+  const [code, setCode] = useState('')
+  const save = useAction(async () => {
+    await api.renumberMachine(client, m.keyId, code)
+    invalidate('shops')
+    invalidate('device')
+    invalidate('devices')
+    invalidate('terminalcodes')
+    onClose()
+  })
+  return (
+    <Dialog open onClose={onClose} title={`Change ${m.machineName || m.terminalCode}'s number`}>
+      <form
+        className="form"
+        onSubmit={(e: FormEvent) => {
+          e.preventDefault()
+          if (code) void save.run()
+        }}
+      >
+        <Loadable q={q} rows={2}>
+          {({ free }) => (
+            <Field label={`New number (now ${m.terminalCode})`} id="till-number" hint="Only numbers never used in this shop — another till's, or one on old receipts, would mix two tills' receipts up.">
+              <select id="till-number" className="select" value={code} onChange={(e) => setCode(e.target.value)}>
+                <option value="">Choose…</option>
+                {free.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+        </Loadable>
+        <p className="small sub" style={{ margin: 0 }}>
+          Sales it already rang keep {m.terminalCode} on their receipts, and {m.terminalCode} is never given to another till. The till starts using the new number
+          at its next sync — tills on 2.9 or later; older ones carry on as {m.terminalCode} until they update.
+        </p>
+        <ActionError error={save.error} />
+        <div className="form-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" type="submit" disabled={!code || save.pending}>
+            Change number
+          </button>
+        </div>
+      </form>
+    </Dialog>
   )
 }
 

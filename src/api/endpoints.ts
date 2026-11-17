@@ -452,6 +452,14 @@ export const renameMachine = async (c: Client, keyId: string, machineName: strin
   (await c.post<{ machineName: string | null }>(`/api/stores/keys/${enc(keyId)}/rename`, { machineName })).machineName
 export const removeMachine = (c: Client, keyId: string) => c.post(`/api/stores/keys/${enc(keyId)}/remove`)
 export const restoreMachine = (c: Client, keyId: string) => c.post(`/api/stores/keys/${enc(keyId)}/restore`)
+/** The till codes still free in a shop (lowest first), and every one it has spent. */
+export const terminalCodes = (c: Client, shopId: string, signal?: AbortSignal) =>
+  c.get<{ free: string[]; spent: string[] }>(`/api/stores/${enc(shopId)}/terminal-codes`, signal)
+export const renumberMachine = (c: Client, keyId: string, code: string) =>
+  c.post<{ from: string; to: string }>(`/api/stores/keys/${enc(keyId)}/terminal-code`, { code })
+/** Delete a removed till for good. Its sales stay with the shop. */
+export const deleteMachine = (c: Client, keyId: string, password: string) =>
+  c.post<{ terminalCode: string; codeRetired: boolean }>(`/api/stores/keys/${enc(keyId)}/delete`, { password })
 
 export const shopEdition = (c: Client, shopId: string, signal?: AbortSignal) => c.get<ShopEdition>(shopPath(shopId, '/edition'), signal)
 export const setShopEdition = (
