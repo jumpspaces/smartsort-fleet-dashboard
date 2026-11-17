@@ -246,6 +246,24 @@ still exists in the cloud and on the till that wrote it; the till backs itself u
 before letting it go. A row this till *wrote* and the cloud refused may be the
 only copy of a sale, so there is no remote command that throws one away.
 
+## The shops as accounts
+
+- **Accounts** (`#/accounts`): shops *going quiet* (no sale for 3 days when
+  they usually sell, or under half their usual week — new shops aren't judged
+  for two weeks), shops *setting up* (owner set up → till reporting → 10
+  products → staff → first sale → backups), *subscriptions* most urgent first,
+  and *follow-ups* we promised.
+- **Calendar** (`#/calendar`): schedules, deletions, follow-ups, renewals,
+  setup codes and mutes running out, with rollouts and holds under way.
+- **A shop's Contact log** tab: calls, visits, messages and notes, each with an
+  optional follow-up date. Ours, not the shop's: left out of its data export.
+- **A shop's Account** tab: its subscription (plan, amount in exact pesewas,
+  paid-until, reminder window), payments (each pays one more period on, or to
+  its own date), a reminder pushed to the owner's phone (logged as a contact),
+  and a monthly PDF of its tills — online time, same-day sync, sales, backups.
+- **Updates → behind**: every till not on the newest version, with why —
+  update failed, not sent yet, on its way, kept out, or offline.
+
 ## A shop's inventory
 
 A shop's **Stock** tab is its inventory, not its machines: what the catalogue

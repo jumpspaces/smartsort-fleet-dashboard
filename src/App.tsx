@@ -26,6 +26,8 @@ import { Tills } from './pages/Tills.tsx'
 import { Problem, Problems } from './pages/Problems.tsx'
 import { Activity, Backups, Fixes, History, Records } from './pages/Reports.tsx'
 import { Settings } from './pages/Settings.tsx'
+import { Accounts } from './pages/Accounts.tsx'
+import { Calendar } from './pages/Calendar.tsx'
 import { Update, Updates } from './pages/Updates.tsx'
 
 export function App() {
@@ -73,6 +75,8 @@ const NAV: { group: string | null; items: Nav[] }[] = [
       { page: 'alerts', path: '/alerts', label: 'Alerts', icon: 'bell' },
       { page: 'tills', path: '/tills', label: 'Tills', icon: 'till', also: 'till' },
       { page: 'shops', path: '/shops', label: 'Shops', icon: 'shop', also: 'shop' },
+      { page: 'accounts', path: '/accounts', label: 'Accounts', icon: 'people' },
+      { page: 'calendar', path: '/calendar', label: 'Calendar', icon: 'calendar' },
     ],
   },
   {
@@ -262,6 +266,10 @@ function Page({ route, params }: { route: Route; params: URLSearchParams }) {
       return <Activity params={params} />
     case 'settings':
       return <Settings params={params} />
+    case 'accounts':
+      return <Accounts params={params} />
+    case 'calendar':
+      return <Calendar />
     default:
       return (
         <div className="card empty">

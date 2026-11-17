@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import * as api from '../api/endpoints.ts'
-import type { FleetState, Rollout, RolloutState, RolloutTargetState } from '../api/types.ts'
+import type { FleetState, LagReason, Rollout, RolloutState, RolloutTargetState } from '../api/types.ts'
 import { ActionError, ConfirmButton, Dialog, Field } from '../components/forms.tsx'
 import { Card, Empty, Live, Loadable, PageHeader, When } from '../components/ui.tsx'
 import { useApi, useOverview, useShops } from '../data.ts'
@@ -75,6 +75,7 @@ export function Updates() {
           </div>
         </Card>
       )}
+      <Behind />
       <Card flush>
         <Loadable q={list} rows={5}>
           {(data) =>
@@ -378,5 +379,74 @@ export function Update({ id }: { id: string }) {
         }}
       </Loadable>
     </div>
+  )
+}
+
+const LAG_LABEL: Record<LagReason, { label: string; tone: string }> = {
+  failed: { label: 'Update failed', tone: 'offline' },
+  not_sent: { label: 'Not sent yet', tone: 'neutral' },
+  waiting: { label: 'On its way', tone: 'healthy' },
+  held: { label: 'Kept out', tone: 'attention' },
+  offline: { label: 'Offline', tone: 'offline' },
+}
+
+/** Tills behind the newest version, and the likeliest reason for each. */
+function Behind() {
+  const q = useApi('updatelag', (c, s) => api.updateLag(c, s), { every: 60_000 })
+  const [all, setAll] = useState(false)
+  return (
+    <Loadable q={q} rows={3}>
+      {(lag) =>
+        !lag.latest ? null : (
+          <Card
+            title={lag.behind.length ? `${plural(lag.behind.length, 'till')} behind ${lag.latest}` : `Every till is on ${lag.latest}`}
+            sub={`${count(lag.onLatest)} of ${count(lag.total)} tills are on the newest version. Failed and not-sent-yet first: those are the ones to act on.`}
+            flush
+          >
+            {lag.behind.length > 0 && (
+              <div className="table-wrap">
+                <table className="table cards">
+                  <thead>
+                    <tr>
+                      <th>Till</th>
+                      <th>On</th>
+                      <th>Why</th>
+                      <th>Last seen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(all ? lag.behind : lag.behind.slice(0, 10)).map((b) => (
+                      <tr key={b.deviceId}>
+                        <td data-label="" className="primary-cell">
+                          <a href={tillHref(b.deviceId)}>{b.deviceId}</a>
+                          <div className="small muted">{b.shopName ?? '—'}</div>
+                        </td>
+                        <td data-label="On" className="mono">
+                          {b.version ?? '—'}
+                        </td>
+                        <td data-label="Why">
+                          <span className={`badge ${LAG_LABEL[b.reason].tone}`}>{LAG_LABEL[b.reason].label}</span>
+                          <div className="small muted">{b.detail}</div>
+                        </td>
+                        <td data-label="Last seen" className="sub">
+                          <When iso={b.lastReportAt} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {lag.behind.length > 10 && (
+                  <div style={{ padding: '8px 16px' }}>
+                    <button className="link-btn small" onClick={() => setAll((v) => !v)}>
+                      {all ? 'Show fewer' : `Show all ${lag.behind.length}`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+        )
+      }
+    </Loadable>
   )
 }

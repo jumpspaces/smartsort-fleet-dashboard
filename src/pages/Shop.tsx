@@ -8,13 +8,17 @@ import { Inventory } from './shop/Inventory.tsx'
 import { ShopAssistant } from './shop/ShopAssistant.tsx'
 import { Edition, Machines, ShopActions } from './shop/ShopTools.tsx'
 import { ClosedBanner, ShopClosure } from './shop/ShopClosure.tsx'
+import { ShopAccount } from './shop/ShopAccount.tsx'
+import { ShopContacts } from './shop/ShopContacts.tsx'
 import { ShopTillSettings } from './shop/ShopTillSettings.tsx'
 import { TillHealth } from './Shops.tsx'
 
-const TABS = ['overview', 'stock', 'features', 'tills', 'assistant', 'closing'] as const
+const TABS = ['overview', 'contacts', 'account', 'stock', 'features', 'tills', 'assistant', 'closing'] as const
 type Tab = (typeof TABS)[number]
 const TAB_LABEL: Record<Tab, string> = {
   overview: 'Overview',
+  contacts: 'Contact log',
+  account: 'Account',
   stock: 'Stock',
   features: 'Features',
   tills: 'Till settings',
@@ -101,6 +105,8 @@ export function Shop({ id, params }: { id: string; params: URLSearchParams }) {
       {tab === 'tills' && <ShopTillSettings shopId={shop.id} />}
       {tab === 'assistant' && <ShopAssistant shopId={shop.id} />}
       {tab === 'closing' && <ShopClosure shop={shop} />}
+      {tab === 'contacts' && <ShopContacts shopId={shop.id} />}
+      {tab === 'account' && <ShopAccount shop={shop} />}
     </div>
   )
 }

@@ -1200,3 +1200,124 @@ export interface ReceiveStockInput {
     serials?: string[]
   }[]
 }
+
+/* --------------------------------------------- the shops as accounts --- */
+
+export interface QuietShop {
+  shopId: string
+  name: string
+  code: string | null
+  phone: string | null
+  owner: string | null
+  reason: 'stopped' | 'dropping'
+  why: string
+  lastSaleAt: string | null
+  lastWeekSales: number
+  lastWeekPesewas: number
+  usualWeekSales: number
+  lastContactAt: string | null
+}
+
+export interface SetupStep {
+  key: 'claimed' | 'tills' | 'products' | 'staff' | 'firstSale' | 'backups'
+  label: string
+  done: boolean
+  detail: string
+}
+
+export interface SetupProgress {
+  shopId: string
+  name: string
+  code: string | null
+  owner: string | null
+  createdAt: string
+  daysIn: number
+  steps: SetupStep[]
+  done: number
+}
+
+export type LagReason = 'held' | 'offline' | 'failed' | 'waiting' | 'not_sent'
+
+export interface UpdateLag {
+  latest: string | null
+  total: number
+  onLatest: number
+  byVersion: { version: string; tills: number }[]
+  behind: { deviceId: string; shopId: string | null; shopName: string | null; version: string | null; reason: LagReason; detail: string; lastReportAt: string | null }[]
+}
+
+export type CalendarKind = 'schedule' | 'deletion' | 'follow_up' | 'renewal' | 'setup_code' | 'mute_ends' | 'rollout' | 'hold'
+
+export interface CalendarEvent {
+  at: string
+  kind: CalendarKind
+  title: string
+  detail?: string
+  shopId?: string | null
+  deviceId?: string | null
+}
+
+export type ContactKind = 'call' | 'visit' | 'message' | 'note'
+
+export interface ShopContact {
+  id: string
+  shopId: string
+  kind: ContactKind
+  summary: string
+  followUpAt: string | null
+  doneAt: string | null
+  doneByLabel: string | null
+  createdBy: string | null
+  createdByLabel: string | null
+  createdAt: string
+}
+
+export interface FollowUp {
+  id: string
+  shopId: string
+  shopName: string
+  summary: string
+  followUpAt: string
+}
+
+export type SubscriptionState = 'paid' | 'due_soon' | 'overdue' | 'none'
+
+export interface ShopSubscription {
+  plan: string
+  amountPesewas: number
+  every: 'month' | 'year'
+  paidUntil: string
+  remindDays: number
+  notes: string | null
+  lastRemindedAt: string | null
+  updatedByLabel: string | null
+}
+
+export interface ShopPayment {
+  id: string
+  amountPesewas: number
+  paidAt: string
+  coversUntil: string
+  method: string | null
+  reference: string | null
+  recordedByLabel: string | null
+}
+
+export interface SubscriptionView {
+  subscription: ShopSubscription | null
+  state: SubscriptionState
+  payments: ShopPayment[]
+  features: string[]
+}
+
+export interface SubscriptionRow {
+  shopId: string
+  name: string
+  code: string | null
+  state: SubscriptionState
+  plan: string | null
+  amountPesewas: number | null
+  every: 'month' | 'year' | null
+  paidUntil: string | null
+  lastRemindedAt: string | null
+}

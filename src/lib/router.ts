@@ -19,6 +19,8 @@ const LISTS = {
   records: null,
   activity: null,
   settings: null,
+  accounts: null,
+  calendar: null,
 } as const
 
 type Lists = typeof LISTS

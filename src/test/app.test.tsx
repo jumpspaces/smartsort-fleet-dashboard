@@ -951,3 +951,141 @@ describe('cloud address', () => {
     await waitFor(() => expect(server.calls.find((c) => c.method === 'PUT' && c.path === '/fleet/cloud-address')?.body).toEqual({ ...signed, password: 'pw' }))
   })
 })
+
+describe('accounts', () => {
+  const shopRow = { id: 's1', name: 'Kumasi Mart', code: 'KM1', location: null, phone: null, currency: 'GHS', createdAt: '2026-10-01T09:00:00Z', owner: null, activated: true, hasLiveClaimCode: false, claimCodeExpiresAt: null, health: { healthy: 1, attention: 0, offline: 0 }, machines: [], closure: null }
+  const withShop = [...shellRoutes.filter((r) => r.path !== '/api/stores'), { path: '/api/stores', reply: { shops: [shopRow] } }]
+
+  it('lists shops gone quiet, with what changed and a way to log the call', async () => {
+    signedIn('operator')
+    fakeServer([
+      ...shellRoutes,
+      {
+        path: '/fleet/accounts/quiet',
+        reply: {
+          shops: [{ shopId: 's1', name: 'Kumasi Mart', code: 'KM1', phone: '024', owner: 'Ama', reason: 'stopped', why: 'No sales for 6 days', lastSaleAt: '2026-11-11T09:00:00Z', lastWeekSales: 0, lastWeekPesewas: 0, usualWeekSales: 40, lastContactAt: null }],
+        },
+      },
+    ])
+    render(<App />)
+    await go('#/accounts')
+    expect(await screen.findByText('No sales for 6 days')).toBeTruthy()
+    expect(screen.getByText('Never')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Log a call' }).getAttribute('href')).toContain('tab=contacts')
+  })
+
+  it('shows how far each new shop has got, and its next step', async () => {
+    signedIn('operator')
+    const step = (key: string, label: string, done: boolean, detail: string) => ({ key, label, done, detail })
+    fakeServer([
+      ...shellRoutes,
+      {
+        path: '/fleet/accounts/setup',
+        reply: {
+          shops: [{ shopId: 's1', name: 'Kumasi Mart', code: 'KM1', owner: 'Ama', createdAt: '2026-11-10T09:00:00Z', daysIn: 7, done: 2, steps: [step('claimed', 'Owner set up', true, ''), step('tills', 'Till reporting', true, ''), step('products', 'Products in', false, '3 products')] }],
+        },
+      },
+    ])
+    render(<App />)
+    await go('#/accounts?tab=setup')
+    expect(await screen.findByText('Products in')).toBeTruthy()
+    expect(screen.getByText('3 products')).toBeTruthy()
+    expect(screen.getByText('2 of 3')).toBeTruthy()
+  })
+
+  it('marks a follow-up done', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      ...shellRoutes,
+      { path: '/fleet/accounts/follow-ups', reply: { followUps: [{ id: 'c1', shopId: 's1', shopName: 'Kumasi Mart', summary: 'Promised to check receipts', followUpAt: '2026-11-18T09:00:00Z' }] } },
+      { method: 'POST', path: '/fleet/accounts/follow-ups/c1/done', reply: {} },
+    ])
+    render(<App />)
+    await go('#/accounts?tab=follow-ups')
+    fireEvent.click(await screen.findByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(server.calls.some((c) => c.method === 'POST' && c.path === '/fleet/accounts/follow-ups/c1/done')).toBe(true))
+  })
+
+  it('puts dated things on the calendar, and what is under way above them', async () => {
+    signedIn('operator')
+    const soon = new Date(Date.now() + 2 * 86_400_000).toISOString()
+    fakeServer([
+      ...shellRoutes,
+      {
+        path: '/fleet/calendar',
+        reply: {
+          events: [{ at: soon, kind: 'renewal', title: "Kumasi Mart's Standard is due", shopId: 's1' }],
+          ongoing: [{ at: '2026-11-10T09:00:00Z', kind: 'hold', title: 'Kept out of updates: Kumasi Mart', shopId: 's1' }],
+        },
+      },
+    ])
+    render(<App />)
+    await go('#/calendar')
+    expect(await screen.findByText("Kumasi Mart's Standard is due")).toBeTruthy()
+    expect(screen.getByText('Under way now')).toBeTruthy()
+    expect(screen.getByRole('link', { name: "Kumasi Mart's Standard is due" }).getAttribute('href')).toContain('tab=account')
+  })
+
+  it('logs a call with a follow-up on the shop', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      ...withShop,
+      { path: '/api/stores/s1/contacts', reply: { contacts: [] } },
+      { method: 'POST', path: '/api/stores/s1/contacts', reply: { contact: {} } },
+    ])
+    render(<App />)
+    await go('#/shops/s1?tab=contacts')
+    fireEvent.change(await screen.findByLabelText('What happened'), { target: { value: 'Printer jams after lunch' } })
+    fireEvent.change(screen.getByLabelText('Follow up'), { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => {
+      const body = server.calls.find((c) => c.method === 'POST' && c.path === '/api/stores/s1/contacts')?.body as { kind: string; summary: string; followUpAt: string }
+      expect(body).toMatchObject({ kind: 'call', summary: 'Printer jams after lunch' })
+      expect(Date.parse(body.followUpAt)).toBeGreaterThan(Date.now() + 2 * 86_400_000)
+    })
+  })
+
+  it('sets up a subscription in exact pesewas, and records a payment', async () => {
+    signedIn('operator')
+    const view = {
+      subscription: { plan: 'Standard', amountPesewas: 15050, every: 'month', paidUntil: '2026-11-20T23:59:59Z', remindDays: 7, notes: null, lastRemindedAt: null, updatedByLabel: 'ama' },
+      state: 'due_soon',
+      payments: [],
+      features: ['credit'],
+    }
+    let current: unknown = { subscription: null, state: 'none', payments: [], features: [] }
+    const server = fakeServer([
+      ...withShop,
+      { path: '/api/stores/s1/subscription', reply: () => current },
+      { method: 'PUT', path: '/api/stores/s1/subscription', reply: () => ((current = view), view) },
+      { method: 'POST', path: '/api/stores/s1/subscription/payments', reply: view },
+    ])
+    render(<App />)
+    await go('#/shops/s1?tab=account')
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up' }))
+    let dialog = screen.getByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Amount (GHS)'), { target: { value: '150.5' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(server.calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ plan: 'Standard', amountPesewas: 15050, every: 'month' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Record a payment' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Record' }))
+    await waitFor(() => expect(server.calls.find((c) => c.method === 'POST' && c.path.endsWith('/payments'))?.body).toMatchObject({ amountPesewas: 15050, method: 'MoMo' }))
+  })
+
+  it('says which tills are behind on the Updates page, and why', async () => {
+    signedIn('operator')
+    fakeServer([
+      ...shellRoutes,
+      { path: '/fleet/rollouts', reply: { rollouts: [], active: null } },
+      {
+        path: '/fleet/updates/lag',
+        reply: { latest: '2.9.0', total: 3, onLatest: 1, byVersion: [], behind: [{ deviceId: 'dev-9', shopId: 's1', shopName: 'Kumasi Mart', version: '2.8.0', reason: 'failed', detail: 'Last update failed: no space', lastReportAt: null }] },
+      },
+    ])
+    render(<App />)
+    await go('#/updates')
+    expect(await screen.findByText('1 till behind 2.9.0')).toBeTruthy()
+    expect(screen.getByText('Update failed')).toBeTruthy()
+    expect(screen.getByText('Last update failed: no space')).toBeTruthy()
+  })
+})

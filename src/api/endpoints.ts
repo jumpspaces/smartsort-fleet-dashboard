@@ -2,6 +2,15 @@ import type { Client } from './client.ts'
 import type {
   Alert,
   AlertState,
+  CalendarEvent,
+  ContactKind,
+  FollowUp,
+  QuietShop,
+  SetupProgress,
+  ShopContact,
+  SubscriptionRow,
+  SubscriptionView,
+  UpdateLag,
   CloudAddressView,
   Session,
   TwoFactorStatus,
@@ -499,3 +508,35 @@ export async function allCommandHistory(
     if (out.length >= page.total || page.commands.length === 0) return out
   }
 }
+
+/* the shops as accounts */
+export const quietShops = async (c: Client, signal?: AbortSignal) => (await c.get<{ shops: QuietShop[] }>('/fleet/accounts/quiet', signal)).shops
+export const setupProgress = async (c: Client, signal?: AbortSignal) =>
+  (await c.get<{ shops: SetupProgress[] }>('/fleet/accounts/setup', signal)).shops
+export const subscriptionList = async (c: Client, signal?: AbortSignal) =>
+  (await c.get<{ shops: SubscriptionRow[] }>('/fleet/accounts/subscriptions', signal)).shops
+export const followUps = async (c: Client, days: number, signal?: AbortSignal) =>
+  (await c.get<{ followUps: FollowUp[] }>(`/fleet/accounts/follow-ups?days=${days}`, signal)).followUps
+export const completeFollowUp = (c: Client, id: string) => c.post(`/fleet/accounts/follow-ups/${enc(id)}/done`, {})
+export const updateLag = (c: Client, signal?: AbortSignal) => c.get<UpdateLag>('/fleet/updates/lag', signal)
+export const calendar = (c: Client, days: number, signal?: AbortSignal) =>
+  c.get<{ events: CalendarEvent[]; ongoing: CalendarEvent[] }>(`/fleet/calendar?days=${days}`, signal)
+export const shopContacts = async (c: Client, shopId: string, signal?: AbortSignal) =>
+  (await c.get<{ contacts: ShopContact[] }>(shopPath(shopId, '/contacts'), signal)).contacts
+export const addShopContact = (c: Client, shopId: string, input: { kind: ContactKind; summary: string; followUpAt?: string | null }) =>
+  c.post<{ contact: ShopContact }>(shopPath(shopId, '/contacts'), input)
+export const deleteShopContact = (c: Client, shopId: string, id: string) => c.del(shopPath(shopId, `/contacts/${enc(id)}`))
+export const shopSubscription = (c: Client, shopId: string, signal?: AbortSignal) => c.get<SubscriptionView>(shopPath(shopId, '/subscription'), signal)
+export const setShopSubscription = (
+  c: Client,
+  shopId: string,
+  input: { plan: string; amountPesewas: number; every: 'month' | 'year'; paidUntil: string; remindDays?: number; notes?: string | null },
+) => c.put<SubscriptionView>(shopPath(shopId, '/subscription'), input)
+export const recordShopPayment = (
+  c: Client,
+  shopId: string,
+  input: { amountPesewas: number; paidAt?: string; coversUntil?: string | null; method?: string | null; reference?: string | null },
+) => c.post<SubscriptionView>(shopPath(shopId, '/subscription/payments'), input)
+export const remindShopOwner = (c: Client, shopId: string) => c.post(shopPath(shopId, '/subscription/remind'), {})
+export const monthlyReport = (c: Client, shopId: string, month: string) =>
+  c.download(shopPath(shopId, `/monthly-report?month=${enc(month)}`), `report-${month}.pdf`)
