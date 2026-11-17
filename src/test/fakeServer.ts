@@ -10,7 +10,8 @@ export interface Route {
   method?: string
   path: string | RegExp
   reply: unknown | Handler
-  status?: number
+  /** A number, or worked out from the request (a second try that succeeds). */
+  status?: number | ((req: { method: string; path: string; url: URL; body: unknown }) => number)
 }
 
 export function fakeServer(routes: Route[]) {
@@ -24,8 +25,10 @@ export function fakeServer(routes: Route[]) {
       (r) => (r.method ?? 'GET') === method && (typeof r.path === 'string' ? url.pathname === r.path : r.path.test(url.pathname)),
     )
     if (!route) return new Response(JSON.stringify({ message: `no route ${method} ${url.pathname}` }), { status: 404 })
-    const data = typeof route.reply === 'function' ? (route.reply as Handler)({ method, path: url.pathname, url, body }) : route.reply
-    return new Response(JSON.stringify(data ?? {}), { status: route.status ?? 200, headers: { 'Content-Type': 'application/json' } })
+    const req = { method, path: url.pathname, url, body }
+    const data = typeof route.reply === 'function' ? (route.reply as Handler)(req) : route.reply
+    const status = typeof route.status === 'function' ? route.status(req) : (route.status ?? 200)
+    return new Response(JSON.stringify(data ?? {}), { status, headers: { 'Content-Type': 'application/json' } })
   })
   vi.stubGlobal('fetch', fetch)
   return { calls, fetch }
@@ -137,4 +140,5 @@ export const shellRoutes: Route[] = [
   { path: '/api/stores', reply: { shops: [] } },
   { method: 'POST', path: '/fleet/devices/heartbeats', reply: { strips: [] } },
   { path: '/fleet/commands/awaiting', reply: { commands: [] } },
+  { path: '/fleet/me/two-factor', reply: { enabled: false, enabledAt: null, recoveryCodesLeft: 10, required: false } },
 ]

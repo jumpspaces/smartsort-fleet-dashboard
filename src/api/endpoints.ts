@@ -2,6 +2,8 @@ import type { Client } from './client.ts'
 import type {
   Alert,
   AlertState,
+  Session,
+  TwoFactorStatus,
   ClosureView,
   ShopClosure,
   AssistantBrief,
@@ -341,6 +343,19 @@ export const setOperatorActive = (c: Client, id: string, active: boolean) =>
 export const setOperatorPassword = (c: Client, id: string, password: string) =>
   c.post(`/fleet/operators/${enc(id)}/password`, { password })
 
+/* sign-in codes from an authenticator app */
+export const twoFactorStatus = (c: Client, signal?: AbortSignal) => c.get<TwoFactorStatus>('/fleet/me/two-factor', signal)
+export const startTwoFactor = (c: Client, password: string) =>
+  c.post<{ secret: string; otpauthUrl: string }>('/fleet/me/two-factor/setup', { password })
+export const enableTwoFactor = (c: Client, code: string) =>
+  c.post<{ recoveryCodes: string[]; session: Omit<Session, 'apiBase'> }>('/fleet/me/two-factor/enable', { code })
+export const disableTwoFactor = (c: Client, password: string, code: string) =>
+  c.post<TwoFactorStatus>('/fleet/me/two-factor/disable', { password, code })
+export const renewRecoveryCodes = (c: Client, password: string, code: string) =>
+  c.post<{ recoveryCodes: string[] }>('/fleet/me/two-factor/recovery-codes', { password, code })
+export const resetOperatorTwoFactor = (c: Client, id: string, password: string) =>
+  c.post(`/fleet/operators/${enc(id)}/two-factor/reset`, { password })
+
 export const rules = async (c: Client, signal?: AbortSignal) => (await c.get<{ rules: Rule[] }>('/fleet/rules', signal)).rules
 export const updateRule = (
   c: Client,
@@ -355,7 +370,10 @@ export const updateThresholds = (c: Client, patch: Partial<Thresholds>) => c.put
 export const updateSettings = (
   c: Client,
   patch: Partial<
-    Pick<FleetSettings, 'quietStartMinute' | 'quietEndMinute' | 'quietTimezone' | 'quietBreakthrough' | 'sloTargetBps' | 'requireCommandApproval'>
+    Pick<
+      FleetSettings,
+      'quietStartMinute' | 'quietEndMinute' | 'quietTimezone' | 'quietBreakthrough' | 'sloTargetBps' | 'requireCommandApproval' | 'requireTwoFactor'
+    >
   >,
 ) => c.put('/fleet/settings', patch)
 

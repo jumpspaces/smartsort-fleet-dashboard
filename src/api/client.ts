@@ -10,33 +10,45 @@ import type { Session } from './types.ts'
  */
 
 export class Unauthorized extends Error {}
-export class Forbidden extends Error {}
-export class HttpError extends Error {
+export class Forbidden extends Error {
   constructor(
     message: string,
-    readonly status: number,
+    /** The server's error code, e.g. "two_factor_setup_required". */
+    readonly code?: string,
   ) {
     super(message)
   }
 }
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message)
+  }
+}
+/** The password was right; now the code from the operator's authenticator app. */
+export class TwoFactorRequired extends Error {}
 
 export const trimBase = (base: string) => base.trim().replace(/\/+$/, '')
 
 async function failure(res: Response): Promise<Error> {
-  const body = (await res.json().catch(() => null)) as { message?: string } | null
+  const body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null
   const message = body?.message ?? `Request failed (HTTP ${res.status})`
-  if (res.status === 403) return new Forbidden(message)
-  return new HttpError(message, res.status)
+  if (res.status === 403) return new Forbidden(message, body?.error)
+  if (res.status === 401 && body?.error === 'two_factor_required') return new TwoFactorRequired(message)
+  return new HttpError(message, res.status, body?.error)
 }
 
-export async function signIn(apiBase: string, email: string, password: string): Promise<Session> {
+export async function signIn(apiBase: string, email: string, password: string, code?: string): Promise<Session> {
   const base = trimBase(apiBase)
   let res: Response
   try {
     res = await fetch(`${base}/fleet/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...(code ? { code } : {}) }),
     })
   } catch {
     throw new Error(`Couldn't reach ${base}. Check the server address and your connection.`)
@@ -56,6 +68,8 @@ export interface Client {
   postText<T>(path: string, body: string, contentType: string): Promise<T>
   /** A file download, riding the same session handling as everything else. A body makes it a POST. */
   download(path: string, fallbackName: string, body?: unknown): Promise<{ filename: string; blob: Blob }>
+  /** Carry on with a session the server just issued (turning on sign-in codes ends the old one). */
+  adopt(next: Omit<Session, 'apiBase'>): void
 }
 
 export interface ClientHooks {
@@ -124,6 +138,10 @@ export function createClient(initial: Session, hooks: ClientHooks): Client {
     put: (path, body) => request(path, { method: 'PUT', body: json(body) }),
     del: (path) => request(path, { method: 'DELETE' }),
     postText: (path, body, contentType) => request(path, { method: 'POST', body }, contentType),
+    adopt: (next) => {
+      session = { apiBase: session.apiBase, ...next }
+      hooks.onRenewed(session)
+    },
     download: async (path, fallbackName, body) => {
       const res = await raw(path, body === undefined ? {} : { method: 'POST', body: json(body) })
       // Readable cross-origin only because the API exposes the header; an

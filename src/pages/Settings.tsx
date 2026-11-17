@@ -12,6 +12,8 @@ import { invalidate, useAction } from '../lib/query.ts'
 import { href, shopHref, tillHref } from '../lib/router.ts'
 import { useSession } from '../lib/session.tsx'
 import { Schedules, TillDefaults } from './settings/Tills.tsx'
+import { StepUpDialog } from '../components/StepUpDialog.tsx'
+import { TwoFactorCard } from '../components/TwoFactor.tsx'
 
 const TABS = [
   { id: 'team', label: 'Team' },
@@ -41,6 +43,8 @@ export function Settings({ params }: { params: URLSearchParams }) {
       {tab === 'team' && (
         <>
           <Team />
+          <TwoFactorCard />
+          <TwoFactorPolicy />
           <CommandSafety />
         </>
       )}
@@ -79,6 +83,7 @@ function Team() {
   const ops = useApi('operators', (c, s) => api.operators(c, s), { enabled: isAdmin })
   const [adding, setAdding] = useState(false)
   const [resetFor, setResetFor] = useState<string | null>(null)
+  const [clearFor, setClearFor] = useState<{ id: string; name: string } | null>(null)
   const toggle = useAction(async (id: string, active: boolean) => {
     await api.setOperatorActive(client, id, active)
     invalidate('operators')
@@ -117,6 +122,7 @@ function Team() {
                 <tr>
                   <th>Name</th>
                   <th>Role</th>
+                  <th>Sign-in codes</th>
                   <th>Last signed in</th>
                   <th />
                 </tr>
@@ -135,11 +141,17 @@ function Team() {
                       {ROLE_LABEL[o.role]}
                       {!o.active && <span className="badge neutral" style={{ marginLeft: 6 }}>Disabled</span>}
                     </td>
+                    <td className="sub">{o.twoFactorAt ? 'On' : <span className="muted">Off</span>}</td>
                     <td className="sub">
                       <When iso={o.lastLoginAt} />
                     </td>
                     <td className="r">
                       <span className="row" style={{ justifyContent: 'flex-end' }}>
+                        {o.twoFactorAt && o.id !== session.operator.id && (
+                          <button className="btn sm ghost" onClick={() => setClearFor(o)}>
+                            Clear codes
+                          </button>
+                        )}
                         <button className="btn sm ghost" onClick={() => setResetFor(o.id)}>
                           Set password
                         </button>
@@ -164,6 +176,22 @@ function Team() {
       </Loadable>
       <AddOperator open={adding} onClose={() => setAdding(false)} />
       <SetPassword id={resetFor} onClose={() => setResetFor(null)} />
+      <StepUpDialog
+        open={clearFor != null}
+        title={`Clear ${clearFor?.name ?? ''}'s sign-in codes`}
+        confirm="Clear codes"
+        danger
+        hint="Your own password. For someone who lost their phone and their recovery codes."
+        onClose={() => setClearFor(null)}
+        onConfirm={async (password) => {
+          await api.resetOperatorTwoFactor(client, clearFor!.id, password)
+          invalidate('operators')
+        }}
+      >
+        <p className="small" style={{ margin: 0 }}>
+          They're signed out everywhere, and set codes up again at their next sign-in.
+        </p>
+      </StepUpDialog>
     </Card>
   )
 }
@@ -218,6 +246,46 @@ function AddOperator({ open, onClose }: { open: boolean; onClose: () => void }) 
         </div>
       </form>
     </Dialog>
+  )
+}
+
+/** Codes for everyone: off by default, and only switchable by an admin who uses them. */
+function TwoFactorPolicy() {
+  const { client, session } = useSession()
+  const isAdmin = session.operator.role === 'admin'
+  const cfg = useApi('config', (c, s) => api.fleetConfig(c, s))
+  const save = useAction(async (on: boolean) => {
+    await api.updateSettings(client, { requireTwoFactor: on })
+    invalidate('config')
+    invalidate('twofactor')
+  })
+  return (
+    <Card title="Sign-in codes for everyone">
+      <Loadable q={cfg} rows={2}>
+        {({ config }) => (
+          <div className="stack" style={{ gap: 10 }}>
+            <div className="spread">
+              <div>
+                <div style={{ fontWeight: 550 }}>Every operator must sign in with a code</div>
+                <div className="small sub">
+                  {config.requireTwoFactor
+                    ? 'On. Anyone without codes set up can do nothing else until they set them up.'
+                    : 'Off. Each operator chooses. Set up your own first, then turn this on.'}
+                </div>
+              </div>
+              <Toggle
+                label="Require sign-in codes"
+                checked={config.requireTwoFactor === true}
+                disabled={!isAdmin || save.pending}
+                onChange={(on) => void save.run(on)}
+              />
+            </div>
+            {!isAdmin && <AdminOnly />}
+            <ActionError error={save.error} />
+          </div>
+        )}
+      </Loadable>
+    </Card>
   )
 }
 

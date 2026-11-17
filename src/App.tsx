@@ -18,6 +18,7 @@ import { useTheme, type Theme } from './lib/theme.ts'
 import { Alerts } from './pages/Alerts.tsx'
 import { Home } from './pages/Home.tsx'
 import { Login } from './pages/Login.tsx'
+import { TwoFactorGate } from './components/TwoFactor.tsx'
 import { Shop } from './pages/Shop.tsx'
 import { Shops } from './pages/Shops.tsx'
 import { Till } from './pages/Till.tsx'
@@ -54,7 +55,9 @@ export function App() {
   }
   return (
     <SessionProvider session={session} onExpired={onExpired} onSignOut={onSignOut}>
-      <Shell />
+      <TwoFactorGate>
+        <Shell />
+      </TwoFactorGate>
     </SessionProvider>
   )
 }

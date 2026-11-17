@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { signIn, trimBase } from '../api/client.ts'
+import { signIn, trimBase, TwoFactorRequired } from '../api/client.ts'
 import type { Session } from '../api/types.ts'
 import { host } from '../lib/format.ts'
 
@@ -70,6 +70,10 @@ export function Login({ onSignedIn, expired }: { onSignedIn: (s: Session) => voi
   const [capsLock, setCapsLock] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The second step: shown once the server says the password was right.
+  const [needCode, setNeedCode] = useState(false)
+  const [code, setCode] = useState('')
+  const codeRef = useRef<HTMLInputElement>(null)
   const reach = useReachable(apiBase)
   const passwordRef = useRef<HTMLInputElement>(null)
   const emailRef = useRef<HTMLInputElement>(null)
@@ -90,18 +94,30 @@ export function Login({ onSignedIn, expired }: { onSignedIn: (s: Session) => voi
       setError('Enter the server address, starting with https://')
       return
     }
+    if (needCode && !code.trim()) return fail('Enter the code from your authenticator app.', codeRef)
     setBusy(true)
     setError(null)
     try {
-      const session = await signIn(apiBase, email.trim(), password)
+      const session = await signIn(apiBase, email.trim(), password, needCode ? code.trim() : undefined)
       store(LAST_API, session.apiBase)
       store(LAST_EMAIL, email.trim())
       onSignedIn(session)
     } catch (err) {
+      setBusy(false)
+      if (err instanceof TwoFactorRequired) {
+        setNeedCode(true)
+        setTimeout(() => codeRef.current?.focus(), 0)
+        return
+      }
       setError(err instanceof Error ? err.message : 'Sign-in failed.')
+      if (needCode) {
+        // The password was right; only the code needs another go.
+        setCode('')
+        codeRef.current?.focus()
+        return
+      }
       setPassword('')
       passwordRef.current?.focus()
-      setBusy(false)
     }
   }
 
@@ -163,7 +179,10 @@ export function Login({ onSignedIn, expired }: { onSignedIn: (s: Session) => voi
               inputMode="email"
               spellCheck={false}
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                setNeedCode(false)
+              }}
             />
           </div>
 
@@ -193,8 +212,25 @@ export function Login({ onSignedIn, expired }: { onSignedIn: (s: Session) => voi
             )}
           </div>
 
+          {needCode && (
+            <div className="field">
+              <label htmlFor="code">Code from your authenticator app</label>
+              <input
+                id="code"
+                ref={codeRef}
+                className="input"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                spellCheck={false}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
+              <div className="hint">Lost your phone? Enter one of your recovery codes instead.</div>
+            </div>
+          )}
+
           <button className="btn primary login-submit" type="submit" disabled={busy}>
-            {busy ? 'Signing in…' : 'Sign in'}
+            {busy ? 'Signing in…' : needCode ? 'Verify' : 'Sign in'}
           </button>
 
           <div className="login-server">

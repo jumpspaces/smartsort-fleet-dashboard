@@ -11,6 +11,16 @@ export interface Operator {
   email: string
   name: string
   role: Role
+  /** This session began with a code from an authenticator app. */
+  mfa?: boolean
+}
+
+export interface TwoFactorStatus {
+  enabled: boolean
+  enabledAt: string | null
+  recoveryCodesLeft: number
+  /** Every operator must use codes (Settings → Team). */
+  required: boolean
 }
 
 export interface Session {
@@ -799,6 +809,8 @@ export interface OperatorAccount extends Operator {
   active: boolean
   lastLoginAt: string | null
   createdAt: string
+  /** When they turned sign-in codes on; null if they haven't. */
+  twoFactorAt?: string | null
 }
 
 export interface OperatorInput {
@@ -857,6 +869,8 @@ export interface FleetSettings {
   digestHour: number | null
   /** A second operator must approve locks and discarded rows. */
   requireCommandApproval: boolean
+  /** Every operator signs in with a code from an authenticator app. Absent on older servers. */
+  requireTwoFactor?: boolean
 }
 
 export interface FleetConfig extends Thresholds, FleetSettings {

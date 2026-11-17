@@ -829,3 +829,93 @@ describe('closing a shop', () => {
     expect(screen.getByText('42')).toBeTruthy()
   })
 })
+
+describe('sign-in codes', () => {
+  it('asks for the code after the password, and signs in with it', async () => {
+    const server = fakeServer([
+      {
+        method: 'POST',
+        path: '/fleet/login',
+        status: (req) => ((req.body as { code?: string }).code ? 200 : 401),
+        reply: (req: { body: unknown }) =>
+          (req.body as { code?: string }).code
+            ? { accessToken: 'a', refreshToken: 'r', operator: { id: 'op1', email: 'ama@x.co', name: 'Ama', role: 'operator', mfa: true } }
+            : { error: 'two_factor_required', message: 'Enter the 6-digit code from your authenticator app.' },
+      },
+      ...shellRoutes,
+      { path: '/fleet/devices', reply: { devices: [], total: 0, limit: 200, offset: 0 } },
+      { path: '/fleet/alerts', reply: { alerts: [] } },
+    ])
+    render(<App />)
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'ama@x.co' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret-password' } })
+    fireEvent.change(screen.getByLabelText('Server address'), { target: { value: 'https://cloud.test/' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    const code = await screen.findByLabelText('Code from your authenticator app')
+    fireEvent.change(code, { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    expect(await screen.findByText('Every till is working')).toBeTruthy()
+    expect(server.calls.filter((c) => c.path === '/fleet/login').map((c) => (c.body as { code?: string }).code)).toEqual([undefined, '123456'])
+  })
+
+  it('when required, a session without a code sets them up before anything else', async () => {
+    signedIn('operator')
+    const server = fakeServer([
+      ...shellRoutes.filter((r) => r.path !== '/fleet/me/two-factor'),
+      { path: '/fleet/me/two-factor', reply: { enabled: false, enabledAt: null, recoveryCodesLeft: 0, required: true } },
+      { method: 'POST', path: '/fleet/me/two-factor/setup', reply: { secret: 'JBSWY3DPEHPK3PXP', otpauthUrl: 'otpauth://totp/SmartSort%20Fleet%3Aama?secret=JBSWY3DPEHPK3PXP' } },
+      {
+        method: 'POST',
+        path: '/fleet/me/two-factor/enable',
+        reply: {
+          recoveryCodes: ['aaaa-bbbb', 'cccc-dddd'],
+          session: { accessToken: 'a2', refreshToken: 'r2', operator: { id: 'op1', email: 'ama@jumpspaces.co', name: 'Ama', role: 'operator', mfa: true } },
+        },
+      },
+      { path: '/fleet/devices', reply: { devices: [], total: 0, limit: 200, offset: 0 } },
+      { path: '/fleet/alerts', reply: { alerts: [] } },
+    ])
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Set up sign-in codes' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText('JBSW Y3DP EHPK 3PXP')).toBeTruthy()
+    expect(await screen.findByAltText('QR code to scan with your authenticator app')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('The 6-digit code your app shows'), { target: { value: '654321' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on' }))
+    expect(await screen.findByText('aaaa-bbbb')).toBeTruthy()
+    // The new session is the one kept: the old one ended when codes went on.
+    expect(JSON.parse(localStorage.getItem('fleet_session')!).accessToken).toBe('a2')
+    fireEvent.click(screen.getByLabelText("I've saved them"))
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(await screen.findByText('Every till is working')).toBeTruthy()
+    expect(server.calls.find((c) => c.path === '/fleet/me/two-factor/enable')?.body).toEqual({ code: '654321' })
+  })
+
+  it('lets an admin clear the codes of someone who lost their phone', async () => {
+    signedIn('admin')
+    const server = fakeServer([
+      ...shellRoutes,
+      {
+        path: '/fleet/operators',
+        reply: {
+          operators: [
+            { id: 'op1', email: 'ama@jumpspaces.co', name: 'Ama', role: 'admin', active: true, lastLoginAt: null, createdAt: '2026-01-01T00:00:00Z', twoFactorAt: '2026-11-01T00:00:00Z' },
+            { id: 'op2', email: 'kofi@jumpspaces.co', name: 'Kofi', role: 'operator', active: true, lastLoginAt: null, createdAt: '2026-01-01T00:00:00Z', twoFactorAt: '2026-11-02T00:00:00Z' },
+          ],
+        },
+      },
+      { path: '/fleet/config', reply: { config: { requireCommandApproval: false, requireTwoFactor: false }, defaults: {} } },
+      { method: 'POST', path: '/fleet/operators/op2/two-factor/reset', reply: { ok: true } },
+    ])
+    render(<App />)
+    await go('#/settings')
+    // Not for yourself: you'd turn your own off with a code instead.
+    expect((await screen.findAllByRole('button', { name: 'Clear codes' })).length).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear codes' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Your password'), { target: { value: 'pw' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear codes' }))
+    await waitFor(() => expect(server.calls.find((c) => c.path === '/fleet/operators/op2/two-factor/reset')?.body).toEqual({ password: 'pw' }))
+  })
+})
