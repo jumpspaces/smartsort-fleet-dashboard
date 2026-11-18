@@ -1,44 +1,83 @@
+import { useState, type ReactNode } from 'react'
 import * as api from '../api/endpoints.ts'
-import type { CloudHealth } from '../api/types.ts'
+import type { CloudBootKind, CloudDependency, CloudHealth, CloudRoute, SettingLevel, SettingState } from '../api/types.ts'
 import { Bars } from '../components/Bars.tsx'
-import { Card, Empty, Live, Loadable, PageHeader, When } from '../components/ui.tsx'
+import { Card, Empty, Live, Loadable, PageHeader, Segmented, When } from '../components/ui.tsx'
 import { useApi } from '../data.ts'
 import { bytes, count, date, duration, exact } from '../lib/format.ts'
+import { href } from '../lib/router.ts'
 
 const LEVEL_TONE = { ok: 'healthy', warning: 'attention', critical: 'offline' } as const
 const LEVEL_WORD = { ok: 'Fine', warning: 'Needs a look', critical: 'Act now' } as const
 /** Figures two-up inside a card, rather than one tall column. */
 const KV = { margin: 0, gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' } as const
+const GRID = { display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' } as const
+
+const TABS = ['overview', 'requests', 'database', 'deploys', 'settings'] as const
+type Tab = (typeof TABS)[number]
+const TAB_LABEL: Record<Tab, string> = {
+  overview: 'Overview',
+  requests: 'Requests',
+  database: 'Database',
+  deploys: 'Deploys',
+  settings: 'Settings',
+}
 
 /**
  * The cloud server itself — the one machine every till depends on and nothing
- * else on this console watches: its disk, its database, its nightly dumps and
- * whether they ever leave the box, which image it runs, its certificate.
+ * else on this console watches: its disk, memory, database and backups, the
+ * requests it answers and fails, its deploys, its settings and the services it
+ * calls.
  */
-export function Cloud() {
-  const q = useApi('cloud', (c, s) => api.cloudHealth(c, s), { every: 120_000 })
+export function Cloud({ params }: { params: URLSearchParams }) {
+  const raw = params.get('tab')
+  const tab: Tab = (TABS as readonly string[]).includes(raw ?? '') ? (raw as Tab) : 'overview'
   return (
     <div className="stack">
       <PageHeader
         title="Cloud"
-        sub="The server every till syncs to. The disk filling, a missed nightly backup and backups that never leave the server also raise alerts."
-        actions={<Live updatedAt={q.updatedAt} busy={q.refreshing} />}
+        sub="The server every till syncs to. What would stop the fleet — the disk or memory running out, failing requests, a crash loop, a wrong setting, a stuck database, a backup that doesn't restore — also raises an alert."
       />
-      <Loadable q={q} rows={10}>
-        {(h) => (
-          <>
-            <Warnings h={h} />
-            <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-              <Disk h={h} />
-              <Backups h={h} />
-              <Database h={h} />
-              <Server h={h} />
-            </div>
-            <Growth h={h} />
-          </>
-        )}
-      </Loadable>
+      <nav className="tabs" aria-label="Cloud sections">
+        {TABS.map((t) => (
+          <a key={t} href={href('/cloud', { tab: t === 'overview' ? null : t })} aria-current={t === tab ? 'page' : undefined}>
+            {TAB_LABEL[t]}
+          </a>
+        ))}
+      </nav>
+      {tab === 'overview' && <Overview />}
+      {tab === 'requests' && <Requests />}
+      {tab === 'database' && <Database />}
+      {tab === 'deploys' && <Deploys />}
+      {tab === 'settings' && <Settings />}
     </div>
+  )
+}
+
+/* -------------------------------------------------------------- overview -- */
+
+function Overview() {
+  const q = useApi('cloud', (c, s) => api.cloudHealth(c, s), { every: 120_000 })
+  return (
+    <Loadable q={q} rows={10}>
+      {(h) => (
+        <>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Live updatedAt={q.updatedAt} busy={q.refreshing} />
+          </div>
+          <Warnings h={h} />
+          <div style={GRID}>
+            <Disk h={h} />
+            {h.machine && <Machine h={h} />}
+            <Backups h={h} />
+            <Server h={h} />
+            {h.requests && <RequestsToday h={h} />}
+            {h.dependencies && <DependsOn deps={h.dependencies} compact />}
+          </div>
+          <Growth h={h} />
+        </>
+      )}
+    </Loadable>
   )
 }
 
@@ -74,7 +113,7 @@ function Warnings({ h }: { h: CloudHealth }) {
   )
 }
 
-function Meter({ used, total }: { used: number; total: number }) {
+function Meter({ used, total, label }: { used: number; total: number; label: string }) {
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
   return (
     <div
@@ -82,7 +121,7 @@ function Meter({ used, total }: { used: number; total: number }) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={pct}
-      aria-label={`${pct}% used`}
+      aria-label={`${label}: ${pct}% used`}
       style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}
     >
       <div style={{ width: `${pct}%`, height: '100%', background: 'var(--ink)' }} />
@@ -98,7 +137,7 @@ function Disk({ h }: { h: CloudHealth }) {
         <Empty title="Couldn’t read the disk" />
       ) : (
         <div className="stack" style={{ gap: 10 }}>
-          <Meter used={d.totalBytes - d.freeBytes} total={d.totalBytes} />
+          <Meter used={d.totalBytes - d.freeBytes} total={d.totalBytes} label="Disk" />
           <dl className="kv" style={KV}>
             <div>
               <dt>Free</dt>
@@ -116,6 +155,16 @@ function Disk({ h }: { h: CloudHealth }) {
               <dt>Full in</dt>
               <dd className="num">{h.runway.fullInDays == null ? '—' : `about ${count(h.runway.fullInDays)} days`}</dd>
             </div>
+            {h.machine?.folders.map((f) => (
+              <div key={f.path}>
+                <dt>{f.label}</dt>
+                <dd className="num">
+                  {f.truncated ? 'over ' : ''}
+                  {bytes(f.bytes)}
+                  <div className="small muted">{count(f.files)} files</div>
+                </dd>
+              </div>
+            ))}
           </dl>
         </div>
       )}
@@ -123,8 +172,47 @@ function Disk({ h }: { h: CloudHealth }) {
   )
 }
 
+function Machine({ h }: { h: CloudHealth }) {
+  const m = h.machine!
+  const mem = m.memory
+  const limited = mem.containerLimitBytes != null && mem.containerUsedBytes != null
+  const used = limited ? mem.containerUsedBytes! : mem.totalBytes - mem.availableBytes
+  const total = limited ? mem.containerLimitBytes! : mem.totalBytes
+  const busy = m.load[0]! > m.cpus
+  return (
+    <Card title="Machine" sub={`${m.cpus} CPU${m.cpus === 1 ? '' : 's'} · up ${duration(m.uptimeSec * 1000)}`}>
+      <div className="stack" style={{ gap: 10 }}>
+        {(mem.measured || limited) && <Meter used={used} total={total} label="Memory" />}
+        <dl className="kv" style={KV}>
+          <div>
+            <dt>{limited ? 'Container memory' : 'Memory available'}</dt>
+            <dd className="num">
+              {limited ? `${bytes(used)} of ${bytes(total)}` : `${bytes(mem.availableBytes)} of ${bytes(mem.totalBytes)}`}
+              {!mem.measured && <div className="small muted">Not Linux’s own figure</div>}
+            </dd>
+          </div>
+          <div>
+            <dt>Swap</dt>
+            <dd className="num">
+              {mem.swapTotalBytes == null ? '—' : mem.swapTotalBytes === 0 ? 'None' : `${bytes(mem.swapTotalBytes - (mem.swapFreeBytes ?? 0))} used of ${bytes(mem.swapTotalBytes)}`}
+            </dd>
+          </div>
+          <div>
+            <dt>Load (1, 5, 15 min)</dt>
+            <dd className={busy ? 'num warn' : 'num'}>
+              {m.load.join(' · ')}
+              {busy && <div className="small muted">More work than CPUs</div>}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </Card>
+  )
+}
+
 function Backups({ h }: { h: CloudHealth }) {
   const b = h.backups
+  const v = b.verified
   return (
     <Card title="Database backups" sub={b.dir ? <span className="mono">{b.dir}</span> : 'Folder not mounted'}>
       {!b.visible ? (
@@ -135,6 +223,26 @@ function Backups({ h }: { h: CloudHealth }) {
             <div>
               <dt>Newest dump</dt>
               <dd>{b.newestAt ? <When iso={b.newestAt} /> : 'None'}</dd>
+            </div>
+            <div>
+              <dt>Restores?</dt>
+              <dd className={v?.ok ? undefined : 'warn'}>
+                {!v ? (
+                  'Never checked'
+                ) : v.ok ? (
+                  <>
+                    Yes, <When iso={v.at} />
+                    <div className="small muted">
+                      {v.tables ?? '?'} tables, {count(v.sales ?? 0)} sales
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    Failed <When iso={v.at} />
+                    {v.error && <div className="small muted">{v.error}</div>}
+                  </>
+                )}
+              </dd>
             </div>
             <div>
               <dt>Copied off the server</dt>
@@ -169,66 +277,34 @@ function Backups({ h }: { h: CloudHealth }) {
   )
 }
 
-function Database({ h }: { h: CloudHealth }) {
-  const db = h.database
-  const pending = db.migrations.shipped != null ? db.migrations.shipped - db.migrations.applied : 0
-  return (
-    <Card title="Database" sub={db.version ? `PostgreSQL ${db.version}` : undefined}>
-      <div className="stack" style={{ gap: 10 }}>
-        <dl className="kv" style={KV}>
-          <div>
-            <dt>Size</dt>
-            <dd className="num">{bytes(db.bytes)}</dd>
-          </div>
-          <div>
-            <dt>Connections</dt>
-            <dd className="num">
-              {db.connections} of {db.maxConnections}
-            </dd>
-          </div>
-          <div>
-            <dt>Migrations</dt>
-            <dd className={pending > 0 ? 'warn' : undefined}>
-              {db.migrations.applied} applied{pending > 0 ? `, ${pending} waiting` : ''}
-              {db.migrations.lastAppliedAt && <div className="small muted">last {date(db.migrations.lastAppliedAt)}</div>}
-            </dd>
-          </div>
-        </dl>
-        <details>
-          <summary className="small">Largest tables</summary>
-          <table className="table">
-            <tbody>
-              {db.largest.map((t) => (
-                <tr key={t.name}>
-                  <td className="mono small">{t.name}</td>
-                  <td className="r num small">{count(t.rows)} rows</td>
-                  <td className="r num small">{bytes(t.bytes)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
-      </div>
-    </Card>
-  )
-}
-
 function Server({ h }: { h: CloudHealth }) {
   const s = h.server
   const passAge = s.lastAlertPassAt ? Date.now() - Date.parse(s.lastAlertPassAt) : null
   return (
-    <Card title="Server">
+    <Card
+      title="Server"
+      actions={
+        h.settings ? (
+          <a className={`badge ${h.settings.problems ? 'attention' : 'healthy'}`} href={href('/cloud', { tab: 'settings' })}>
+            {h.settings.problems ? `${h.settings.problems} setting${h.settings.problems === 1 ? '' : 's'} to fix` : 'Settings fine'}
+          </a>
+        ) : undefined
+      }
+    >
       <dl className="kv" style={KV}>
         <div>
           <dt>Image</dt>
-          <dd className="mono">{s.imageTag ?? 'not set'}</dd>
+          <dd className="mono">{s.imageTag ? <ImageLink tag={s.imageTag} /> : 'not set'}</dd>
         </div>
         <div>
           <dt>Up since</dt>
-          <dd title={exact(s.startedAt)}>{date(s.startedAt)}</dd>
+          <dd title={exact(s.startedAt)}>
+            {date(s.startedAt)}
+            {h.boots && h.boots.lastHour > 1 && <div className="small warn">{h.boots.lastHour} starts this hour</div>}
+          </dd>
         </div>
         <div>
-          <dt>Memory</dt>
+          <dt>Its memory</dt>
           <dd className="num">{bytes(s.rssBytes)}</dd>
         </div>
         <div>
@@ -258,11 +334,108 @@ function Server({ h }: { h: CloudHealth }) {
   )
 }
 
+function RequestsToday({ h }: { h: CloudHealth }) {
+  const r = h.requests!
+  const failedPct = r.day.requests ? (r.day.serverErrors / r.day.requests) * 100 : 0
+  return (
+    <Card
+      title="Requests, last 24 hours"
+      actions={
+        <a className="btn sm ghost" href={href('/cloud', { tab: 'requests' })}>
+          By route
+        </a>
+      }
+    >
+      <dl className="kv" style={KV}>
+        <div>
+          <dt>Answered</dt>
+          <dd className="num">{count(r.day.requests)}</dd>
+        </div>
+        <div>
+          <dt>Server errors</dt>
+          <dd className={r.day.serverErrors ? 'num warn' : 'num'}>
+            {count(r.day.serverErrors)}
+            {r.day.serverErrors > 0 && <div className="small muted">{failedPct < 0.1 ? 'under 0.1' : failedPct.toFixed(1)}% of requests</div>}
+          </dd>
+        </div>
+        <div>
+          <dt>Last 15 minutes</dt>
+          <dd className="num">
+            {count(r.last15m.requests)}
+            {r.last15m.serverErrors > 0 && <div className="small warn">{r.last15m.serverErrors} failed</div>}
+          </dd>
+        </div>
+        <div>
+          <dt>Refused (4xx)</dt>
+          <dd className="num">{count(r.day.clientErrors)}</dd>
+        </div>
+      </dl>
+    </Card>
+  )
+}
+
+const DEP_TONE: Record<CloudDependency['health'], string> = { ok: 'healthy', failing: 'offline', unused: 'neutral', off: 'neutral' }
+const DEP_WORD: Record<CloudDependency['health'], string> = { ok: 'Working', failing: 'Failing', unused: 'Not used yet', off: 'Not set up' }
+
+function DependsOn({ deps, compact }: { deps: CloudDependency[]; compact?: boolean }) {
+  return (
+    <Card
+      title="What it depends on"
+      sub={compact ? 'The outside services it calls.' : 'The outside services the cloud calls, with the last time each worked and didn’t. Push and the heartbeat count from when the server started.'}
+      actions={
+        compact ? (
+          <a className="btn sm ghost" href={href('/cloud', { tab: 'settings' })}>
+            Details
+          </a>
+        ) : undefined
+      }
+      flush
+    >
+      {deps.length === 0 ? (
+        <Empty title="Nothing to show" />
+      ) : (
+        <ul className="list">
+          {deps.map((d) => (
+            <li key={d.name} className="row" style={{ padding: '8px 16px', gap: 10, alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+              <span className={`badge ${DEP_TONE[d.health]}`} style={{ flex: 'none' }}>
+                {DEP_WORD[d.health]}
+              </span>
+              <span style={{ minWidth: 0 }}>
+                {d.name}
+                {compact ? (
+                  d.health === 'failing' && d.lastError && <div className="small muted">{d.lastError}</div>
+                ) : (
+                  <div className="small muted">
+                    {d.what}
+                    {d.lastOkAt && (
+                      <>
+                        {' '}
+                        · worked <When iso={d.lastOkAt} />
+                      </>
+                    )}
+                    {d.lastFailAt && (
+                      <>
+                        {' '}
+                        · failed <When iso={d.lastFailAt} />
+                      </>
+                    )}
+                    {d.lastError && <div>{d.lastError}</div>}
+                  </div>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
 function Growth({ h }: { h: CloudHealth }) {
   const days = [...h.history].reverse()
   if (days.length < 2) return null
   return (
-    <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+    <div style={GRID}>
       <Card title="Database size, by day">
         <Bars label="Database size by day" points={days.map((d) => ({ key: d.day, value: d.dbBytes, label: d.day }))} format={(n) => bytes(n)} />
       </Card>
@@ -270,5 +443,408 @@ function Growth({ h }: { h: CloudHealth }) {
         <Bars label="Free disk by day" points={days.map((d) => ({ key: d.day, value: d.diskFreeBytes, label: d.day }))} format={(n) => bytes(n)} />
       </Card>
     </div>
+  )
+}
+
+/** "sha-1dd4d0b" links to its commit; anything else is just the tag. */
+function ImageLink({ tag }: { tag: string }) {
+  const sha = /^sha-([0-9a-f]{7,40})$/.exec(tag)?.[1]
+  if (!sha) return <>{tag}</>
+  return (
+    <a href={`https://github.com/jumpspaces/PROJECT-POS/commit/${sha}`} target="_blank" rel="noreferrer">
+      {tag}
+    </a>
+  )
+}
+
+/* -------------------------------------------------------------- requests -- */
+
+type RouteSort = 'busiest' | 'failing' | 'slowest'
+
+function Requests() {
+  const [days, setDays] = useState<'1' | '7' | '30'>('7')
+  const [sort, setSort] = useState<RouteSort>('busiest')
+  const q = useApi(`cloud:requests:${days}`, (c, s) => api.cloudRequests(c, Number(days), s), { every: 60_000 })
+  return (
+    <Loadable q={q} rows={8}>
+      {(r) => {
+        const routes = [...r.routes].sort((a, b) =>
+          sort === 'failing'
+            ? b.serverErrors - a.serverErrors || b.clientErrors - a.clientErrors
+            : sort === 'slowest'
+              ? (b.p95Ms ?? 0) - (a.p95Ms ?? 0)
+              : b.requests - a.requests,
+        )
+        const label = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit' })
+        return (
+          <>
+            <div className="spread">
+              <Segmented
+                label="How far back"
+                value={days}
+                onChange={setDays}
+                options={[
+                  { value: '1', label: 'Day' },
+                  { value: '7', label: 'Week' },
+                  { value: '30', label: 'Month' },
+                ]}
+              />
+              <Live updatedAt={q.updatedAt} busy={q.refreshing} />
+            </div>
+            <div style={GRID}>
+              <Card title="Requests, by hour">
+                <Bars label="Requests by hour" points={r.hours.map((h) => ({ key: h.hour, value: h.requests, label: label(h.hour) }))} format={(n) => count(n)} />
+              </Card>
+              <Card title="Server errors, by hour" sub={<a href={href('/problems')}>The errors themselves are in App problems, as the cloud</a>}>
+                <Bars label="Server errors by hour" points={r.hours.map((h) => ({ key: h.hour, value: h.serverErrors, label: label(h.hour) }))} format={(n) => count(n)} />
+              </Card>
+            </div>
+            <Card
+              title="By route, last 24 hours"
+              sub={
+                <>
+                  Counted since the server started <When iso={r.since} />. A route is its pattern, never a shop’s ids.
+                </>
+              }
+              actions={
+                <Segmented
+                  label="Sort routes"
+                  value={sort}
+                  onChange={setSort}
+                  options={[
+                    { value: 'busiest', label: 'Busiest' },
+                    { value: 'failing', label: 'Failing' },
+                    { value: 'slowest', label: 'Slowest' },
+                  ]}
+                />
+              }
+              flush
+            >
+              {routes.length === 0 ? <Empty title="No requests yet" /> : <RouteTable routes={routes.slice(0, 60)} />}
+            </Card>
+          </>
+        )
+      }}
+    </Loadable>
+  )
+}
+
+function RouteTable({ routes }: { routes: CloudRoute[] }) {
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th className="r">Requests</th>
+            <th className="r">Server errors</th>
+            <th className="r">Refused</th>
+            <th className="r">Typical</th>
+            <th className="r">95% under</th>
+            <th className="r">Slowest</th>
+          </tr>
+        </thead>
+        <tbody>
+          {routes.map((r) => (
+            <tr key={r.route}>
+              <td className="mono small" style={{ overflowWrap: 'anywhere' }}>
+                {r.route}
+              </td>
+              <td className="r num">{count(r.requests)}</td>
+              <td className={r.serverErrors ? 'r num warn' : 'r num'}>{count(r.serverErrors)}</td>
+              <td className="r num">{count(r.clientErrors)}</td>
+              <td className="r num">{ms(r.avgMs)}</td>
+              <td className="r num">{r.p95Ms == null ? '—' : ms(r.p95Ms)}</td>
+              <td className="r num">{ms(r.slowestMs)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n)}ms`)
+
+/* -------------------------------------------------------------- database -- */
+
+function Database() {
+  const q = useApi('cloud:database', (c, s) => api.cloudDatabase(c, s), { every: 30_000 })
+  return (
+    <Loadable q={q} rows={8}>
+      {(d) => {
+        const used = d.connections.reduce((s, c) => s + c.count, 0)
+        const pending = d.migrations.shipped != null ? d.migrations.shipped - d.migrations.applied : 0
+        return (
+          <>
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <Live updatedAt={q.updatedAt} busy={q.refreshing} />
+            </div>
+            <div style={GRID}>
+              <Card title="Database" sub={d.version ? `PostgreSQL ${d.version}` : undefined}>
+                <dl className="kv" style={KV}>
+                  <div>
+                    <dt>Size</dt>
+                    <dd className="num">{bytes(d.bytes)}</dd>
+                  </div>
+                  <div>
+                    <dt>Reads from memory</dt>
+                    <dd className={d.cacheHitPct != null && d.cacheHitPct < 95 ? 'num warn' : 'num'}>{d.cacheHitPct == null ? '—' : `${d.cacheHitPct}%`}</dd>
+                  </div>
+                  <div>
+                    <dt>Migrations</dt>
+                    <dd className={pending > 0 ? 'warn' : undefined}>
+                      {d.migrations.applied} applied{pending > 0 ? `, ${pending} waiting` : ''}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Deadlocks</dt>
+                    <dd className={d.deadlocks ? 'num warn' : 'num'}>{count(d.deadlocks)}</dd>
+                  </div>
+                  <div>
+                    <dt>Commits / rollbacks</dt>
+                    <dd className="num">
+                      {count(d.commits)} / {count(d.rollbacks)}
+                    </dd>
+                  </div>
+                </dl>
+              </Card>
+              <Card title="Connections" sub={`${used} of ${d.maxConnections} in use`}>
+                <div className="stack" style={{ gap: 10 }}>
+                  <Meter used={used} total={d.maxConnections} label="Connections" />
+                  <dl className="kv" style={KV}>
+                    {d.connections.map((c) => (
+                      <div key={c.state}>
+                        <dt>{c.state}</dt>
+                        <dd className={c.state === 'idle in transaction' ? 'num warn' : 'num'}>{c.count}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              </Card>
+            </div>
+            <Card
+              title="Transactions open over 30 seconds"
+              sub="One left open holds back every writer to the same rows — sync included. Over 10 minutes raises an alert."
+              flush
+            >
+              {d.openTransactions.length === 0 ? (
+                <Empty title="None" />
+              ) : (
+                <SqlTable
+                  head={['Open for', 'State', 'Waiting on', 'From', 'Query']}
+                  rows={d.openTransactions.map((t) => [
+                    duration(t.ageMs),
+                    t.state ?? '—',
+                    t.waiting ?? '—',
+                    t.application ?? '—',
+                    <code key="q" className="small">
+                      {t.query}
+                    </code>,
+                  ])}
+                />
+              )}
+            </Card>
+            {d.blocked.length > 0 && (
+              <Card title="Waiting on a lock" flush>
+                <SqlTable
+                  head={['Waiting', 'Blocked by', 'Query']}
+                  rows={d.blocked.map((b) => [
+                    duration(b.ageMs),
+                    b.blockers.map((p) => `#${p}`).join(', '),
+                    <code key="q" className="small">
+                      {b.query}
+                    </code>,
+                  ])}
+                />
+              </Card>
+            )}
+            <div style={GRID}>
+              <Card title="Dead rows" sub="Updated or deleted rows autovacuum hasn’t cleared yet." flush>
+                {d.deadRows.length === 0 ? (
+                  <Empty title="None waiting" />
+                ) : (
+                  <SqlTable
+                    head={['Table', 'Dead', 'Live', 'Vacuumed']}
+                    rows={d.deadRows.map((t) => [
+                      <span key="t" className="mono small">
+                        {t.table}
+                      </span>,
+                      count(t.dead),
+                      count(t.live),
+                      t.vacuumedAt ? <When key="v" iso={t.vacuumedAt} /> : 'never',
+                    ])}
+                  />
+                )}
+              </Card>
+              <Card title="Largest tables" flush>
+                <SqlTable
+                  head={['Table', 'Rows (about)', 'Size']}
+                  rows={d.largest.map((t) => [
+                    <span key="t" className="mono small">
+                      {t.name}
+                    </span>,
+                    count(t.rows),
+                    bytes(t.bytes),
+                  ])}
+                />
+              </Card>
+            </div>
+          </>
+        )
+      }}
+    </Loadable>
+  )
+}
+
+function SqlTable({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            {head.map((h) => (
+              <th key={h}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              {r.map((cell, j) => (
+                <td key={j} style={{ overflowWrap: 'anywhere' }}>
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/* --------------------------------------------------------------- deploys -- */
+
+const KIND: Record<CloudBootKind, { label: string; tone: string }> = {
+  first: { label: 'First start', tone: 'neutral' },
+  deploy: { label: 'Deploy', tone: 'healthy' },
+  restart: { label: 'Restart', tone: 'neutral' },
+  rollback: { label: 'Rollback', tone: 'attention' },
+}
+
+function Deploys() {
+  const q = useApi('cloud:deploys', (c, s) => api.cloudDeploys(c, s), { every: 120_000 })
+  return (
+    <Card
+      title="Every start of the server"
+      sub="A new image is a deploy, the same one a restart, an earlier one a rollback — the deploy workflow rolls back by itself when a new image won’t come up. Three starts in an hour raises an alert."
+      flush
+    >
+      <Loadable q={q} rows={6}>
+        {({ boots }) =>
+          boots.length === 0 ? (
+            <Empty title="No starts recorded yet">The server records each start from this version on.</Empty>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Started</th>
+                    <th>What</th>
+                    <th>Image</th>
+                    <th>Replaced</th>
+                    <th className="r">Ran for</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {boots.map((b) => (
+                    <tr key={b.id}>
+                      <td className="nowrap" title={exact(b.startedAt)}>
+                        {date(b.startedAt)}{' '}
+                        <span className="small muted">{new Date(b.startedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </td>
+                      <td>
+                        <span className={`badge ${KIND[b.kind].tone}`}>{KIND[b.kind].label}</span>
+                      </td>
+                      <td className="mono small">{b.imageTag ? <ImageLink tag={b.imageTag} /> : '—'}</td>
+                      <td className="mono small">{b.from ? <ImageLink tag={b.from} /> : '—'}</td>
+                      <td className="r num">{b.ranForMs == null ? <span className="badge healthy">Running</span> : duration(b.ranForMs)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+      </Loadable>
+    </Card>
+  )
+}
+
+/* -------------------------------------------------------------- settings -- */
+
+const STATE: Record<SettingState, { label: string; tone: string }> = {
+  ok: { label: 'Working', tone: 'healthy' },
+  missing: { label: 'Not set', tone: 'attention' },
+  broken: { label: 'Not working', tone: 'offline' },
+  default: { label: 'Default', tone: 'neutral' },
+}
+const LEVEL: Record<SettingLevel, string> = { required: 'Required', recommended: 'Recommended', optional: 'Optional' }
+const LEVEL_RANK: Record<SettingLevel, number> = { required: 0, recommended: 1, optional: 2 }
+const STATE_RANK: Record<SettingState, number> = { broken: 0, missing: 1, default: 2, ok: 3 }
+
+function Settings() {
+  const q = useApi('cloud:settings', (c, s) => api.cloudSettings(c, s), { every: 120_000 })
+  return (
+    <Loadable q={q} rows={8}>
+      {({ settings, dependencies }) => {
+        // What's wrong first — the required before the recommended — then what's fine.
+        const wrong = (x: (typeof settings)[number]) => (x.state === 'missing' || x.state === 'broken' ? 0 : 1)
+        const sorted = [...settings].sort(
+          (a, b) => wrong(a) - wrong(b) || LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || STATE_RANK[a.state] - STATE_RANK[b.state],
+        )
+        return (
+          <>
+            <Card
+              title="Settings"
+              sub="Whether each is set and, where it can be checked, working. Never a value. Docker passes only the variables docker-compose.yml lists — one added to .env alone never arrives."
+              flush
+            >
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Setting</th>
+                      <th>Needed</th>
+                      <th>State</th>
+                      <th>What it means</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sorted.map((s) => (
+                      <tr key={s.key}>
+                        <td>
+                          {s.label}
+                          <div className="mono small muted">{s.key}</div>
+                        </td>
+                        <td className="small">{LEVEL[s.level]}</td>
+                        <td>
+                          <span className={`badge ${STATE[s.state].tone}`}>{STATE[s.state].label}</span>
+                        </td>
+                        <td className="small" style={{ maxWidth: 520 }}>
+                          {s.note}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+            <DependsOn deps={dependencies} />
+          </>
+        )
+      }}
+    </Loadable>
   )
 }

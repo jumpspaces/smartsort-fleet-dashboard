@@ -113,6 +113,38 @@ const RULES: Record<string, Plain> = {
     title: "Last night's database backup didn't run",
     hint: `Check the backup job on the cloud server. ${DEV}`,
   },
+  'cloud.restore_unverified': {
+    title: "The cloud's backups aren't proven to restore",
+    hint: `The nightly restore check failed or hasn't run for a week. ${DEV}`,
+  },
+  'cloud.cert_expiring': {
+    title: "The cloud's certificate is running out",
+    hint: `Caddy's renewal is failing; tills can't connect once it expires. ${DEV}`,
+  },
+  'cloud.errors_spike': {
+    title: 'The cloud is failing requests',
+    hint: `Many server errors in the last 15 minutes. They're in App problems as the cloud. ${DEV}`,
+  },
+  'cloud.restarts': {
+    title: 'The cloud server keeps restarting',
+    hint: `Several starts in an hour — a crash loop. ${DEV}`,
+  },
+  'cloud.config': {
+    title: 'A cloud setting is wrong',
+    hint: 'A required setting is missing or not working. Cloud → Settings says which.',
+  },
+  'cloud.db_long_tx': {
+    title: 'A database transaction is stuck open',
+    hint: `Writers to the same rows — sync included — wait behind it. Cloud → Database names it. ${DEV}`,
+  },
+  'cloud.db_connections': {
+    title: "The database's connections are nearly all in use",
+    hint: `New requests wait or fail at the ceiling. ${DEV}`,
+  },
+  'cloud.memory_low': {
+    title: 'The cloud server is nearly out of memory',
+    hint: `Past this the system starts killing processes. ${DEV}`,
+  },
   'cloud.backup_onbox': {
     title: "The database backups haven't left the server",
     hint: 'Losing the server would lose the backups too. Copy them off and mark the copy (Cloud page).',

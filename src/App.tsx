@@ -289,7 +289,7 @@ function Page({ route, params }: { route: Route; params: URLSearchParams }) {
     case 'phones':
       return <Phones params={params} />
     case 'cloud':
-      return <Cloud />
+      return <Cloud params={params} />
     default:
       return (
         <div className="card empty">

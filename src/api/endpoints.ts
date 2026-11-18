@@ -89,6 +89,11 @@ import type {
   VersionScore,
   WorstOffender,
   CloudHealth,
+  CloudBoot,
+  CloudDatabase,
+  CloudDependency,
+  CloudRequests,
+  CloudSetting,
   HelpList,
   HelpRequestDetail,
   HelpStatus,
@@ -586,3 +591,8 @@ export const phoneErrors = (c: Client, installId: string, signal?: AbortSignal) 
   c.get<{ errors: PhoneError[] }>(`/fleet/phones/${enc(installId)}/errors`, signal)
 
 export const cloudHealth = (c: Client, signal?: AbortSignal) => c.get<CloudHealth>('/fleet/cloud', signal)
+export const cloudRequests = (c: Client, days: number, signal?: AbortSignal) => c.get<CloudRequests>(`/fleet/cloud/requests${qs({ days })}`, signal)
+export const cloudDatabase = (c: Client, signal?: AbortSignal) => c.get<CloudDatabase>('/fleet/cloud/database', signal)
+export const cloudDeploys = (c: Client, signal?: AbortSignal) => c.get<{ boots: CloudBoot[] }>('/fleet/cloud/deploys', signal)
+export const cloudSettings = (c: Client, signal?: AbortSignal) =>
+  c.get<{ settings: CloudSetting[]; dependencies: CloudDependency[] }>('/fleet/cloud/settings', signal)

@@ -290,13 +290,28 @@ only copy of a sale, so there is no remote command that throws one away.
   its build and over-the-air update. Phones check in on sign-in and when they
   come to the front (at most every six hours, at once after an update). Their
   JavaScript errors go into App problems as device `phone:<install>`.
-- **Cloud** (`#/cloud`): the server itself — disk, database size and largest
-  tables, migrations, nightly dumps and whether they've left the box, image
-  tag, memory, certificate. The disk filling (`cloud.disk_low`), no dump in 36
-  hours (`cloud.backup_stale`) and no copy off the box in 8 days
-  (`cloud.backup_onbox`) raise alerts. It needs the backups folder mounted
-  read-only (`CLOUD_BACKUP_DIR`, see `server/docker-compose.yml`), and whatever
-  copies dumps off the box should `touch backups/.offsite` after each copy.
+- **Cloud** (`#/cloud`): the server itself, in five tabs.
+  - *Overview*: disk (and the update-feed and uploads folders that grow by
+    themselves), the machine's memory, swap and load, the nightly dumps —
+    whether last night's **restored** and whether they've left the box —
+    image, certificate, today's requests and the outside services it calls.
+  - *Requests*: requests and server errors per hour, and per route (by
+    pattern, never ids) for the last day: busiest, failing, slowest. The
+    server's own crashes are filed in App problems as device `cloud`.
+  - *Database*: connections by state, transactions open over 30 seconds (with
+    their query), lock waits, dead rows, cache hits, deadlocks.
+  - *Deploys*: every start of the server — deploy, restart or rollback.
+  - *Settings*: whether each setting is set and working, never its value, and
+    each outside service's last success and failure.
+
+  Alerts: `cloud.disk_low`, `cloud.memory_low`, `cloud.backup_stale`,
+  `cloud.backup_onbox`, `cloud.restore_unverified`, `cloud.errors_spike`,
+  `cloud.restarts`, `cloud.config`, `cloud.db_long_tx`,
+  `cloud.db_connections`, `cloud.cert_expiring` (needs `PUBLIC_HOST`). It
+  needs the backups folder mounted read-only (`CLOUD_BACKUP_DIR`, see
+  `server/docker-compose.yml`) and the nightly `server/backup-and-verify.sh`
+  (DEPLOY.md §8); whatever copies dumps off the box should
+  `touch backups/.offsite` after each copy.
 
 ## A shop's inventory
 

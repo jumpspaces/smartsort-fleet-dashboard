@@ -278,7 +278,10 @@ export function Problem({ fingerprint }: { fingerprint: string }) {
                           {list.map((d) => (
                             <tr key={d.deviceId}>
                               <td className="primary-cell">
-                                {d.deviceId.startsWith('phone:') ? (
+                                {d.deviceId === 'cloud' ? (
+                                  // The cloud files its own failures as device "cloud".
+                                  <a href={href('/cloud', { tab: 'requests' })}>The cloud</a>
+                                ) : d.deviceId.startsWith('phone:') ? (
                                   // The phone app files its errors as "phone:<install>".
                                   <a href={href('/phones', { shopId: d.shopId ?? undefined })}>Phone app</a>
                                 ) : (

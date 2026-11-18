@@ -1531,8 +1531,106 @@ export interface CloudHealth {
     files: { name: string; bytes: number; modifiedAt: string }[]
     newestAt: string | null
     offsiteAt: string | null
+    /** The nightly restore check (absent from an older server). */
+    verified?: RestoreCheck | null
   }
   cert: { host: string; validTo: string | null; error: string | null } | null
   history: { day: string; dbBytes: number | null; diskFreeBytes: number | null; diskTotalBytes: number | null }[]
   warnings: CloudWarning[]
+  /** The rest arrived with the second Cloud release; an older server leaves them out. */
+  machine?: CloudMachine
+  boots?: { recent: CloudBoot[]; lastHour: number }
+  requests?: { day: { requests: number; clientErrors: number; serverErrors: number }; last15m: { requests: number; serverErrors: number }; since: string }
+  dependencies?: CloudDependency[]
+  settings?: { checked: number; problems: number }
+}
+
+export interface RestoreCheck {
+  at: string
+  dump: string | null
+  ok: boolean
+  tables: number | null
+  sales: number | null
+  error: string | null
+}
+
+export interface CloudMachine {
+  cpus: number
+  load: number[]
+  uptimeSec: number
+  memory: {
+    totalBytes: number
+    availableBytes: number
+    swapTotalBytes: number | null
+    swapFreeBytes: number | null
+    containerLimitBytes: number | null
+    containerUsedBytes: number | null
+    measured: boolean
+  }
+  folders: { label: string; path: string; bytes: number; files: number; truncated: boolean }[]
+}
+
+export type CloudBootKind = 'first' | 'deploy' | 'restart' | 'rollback'
+
+export interface CloudBoot {
+  id: string
+  startedAt: string
+  imageTag: string | null
+  kind: CloudBootKind
+  from: string | null
+  ranForMs: number | null
+}
+
+export interface CloudRoute {
+  route: string
+  requests: number
+  clientErrors: number
+  serverErrors: number
+  avgMs: number
+  p95Ms: number | null
+  slowestMs: number
+}
+
+export interface CloudRequests {
+  since: string
+  hours: { hour: string; requests: number; clientErrors: number; serverErrors: number; p95Ms: number | null; slowestMs: number | null }[]
+  routes: CloudRoute[]
+  last15m: { requests: number; serverErrors: number }
+  day: { requests: number; clientErrors: number; serverErrors: number }
+}
+
+export interface CloudDatabase {
+  bytes: number
+  version: string | null
+  connections: { state: string; count: number }[]
+  maxConnections: number
+  largest: { name: string; bytes: number; rows: number }[]
+  migrations: { applied: number; shipped: number | null; lastAppliedAt: string | null }
+  openTransactions: { pid: number; state: string | null; ageMs: number; waiting: string | null; application: string | null; query: string }[]
+  blocked: { pid: number; blockers: number[]; ageMs: number; query: string }[]
+  deadRows: { table: string; live: number; dead: number; vacuumedAt: string | null }[]
+  cacheHitPct: number | null
+  commits: number
+  rollbacks: number
+  deadlocks: number
+}
+
+export type SettingLevel = 'required' | 'recommended' | 'optional'
+export type SettingState = 'ok' | 'missing' | 'broken' | 'default'
+
+export interface CloudSetting {
+  key: string
+  label: string
+  level: SettingLevel
+  state: SettingState
+  note: string
+}
+
+export interface CloudDependency {
+  name: string
+  what: string
+  health: 'ok' | 'failing' | 'unused' | 'off'
+  lastOkAt: string | null
+  lastFailAt: string | null
+  lastError: string | null
 }
