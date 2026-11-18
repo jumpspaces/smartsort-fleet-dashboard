@@ -21,6 +21,10 @@ const LISTS = {
   settings: null,
   accounts: null,
   calendar: null,
+  help: 'helpRequest',
+  receipts: null,
+  phones: null,
+  cloud: null,
 } as const
 
 type Lists = typeof LISTS
@@ -69,6 +73,9 @@ export const tillHref = (id: string) => href(`/tills/${encodeURIComponent(id)}`)
 export const shopHref = (id: string) => href(`/shops/${encodeURIComponent(id)}`)
 export const problemHref = (fingerprint: string) => href(`/problems/${encodeURIComponent(fingerprint)}`)
 export const updateHref = (id: string) => href(`/updates/${encodeURIComponent(id)}`)
+export const helpHref = (id: string) => href(`/help/${encodeURIComponent(id)}`)
+/** A sale search, optionally inside one shop. */
+export const receiptsHref = (q: string, shopId?: string) => href('/receipts', { q, shopId })
 
 function subscribe(cb: () => void) {
   window.addEventListener('hashchange', cb)

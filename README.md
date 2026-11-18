@@ -264,6 +264,40 @@ only copy of a sale, so there is no remote command that throws one away.
 - **Updates → behind**: every till not on the newest version, with why —
   update failed, not sent yet, on its way, kept out, or offline.
 
+## Helping a shop
+
+- **Help requests** (`#/help`): sent from a till (user menu → *Send them a
+  message*, or the Help box) or the phone app (Settings → *Message JumpSpaces*).
+  A till's request carries that till's state when it was sent and starts a log
+  collection on it. Reply in the console and the person sees it in the app; an
+  owner who asked from the phone also gets a notification. A shop with
+  unanswered requests raises one `help.requested` alert, which clears when
+  everything there is answered or closed.
+- **Owner locked out** (a shop's header): for an owner who has lost both their
+  password and their recovery answer. Takes your password again and makes a
+  one-time code (two hours, one use, a newer one cancels the older). Read it
+  to the owner; on the till or phone they choose *Forgot password → I have a
+  code from JumpSpaces* and set a new password themselves. Redeeming signs them
+  out everywhere. On a till the code is checked with the cloud, so that till
+  needs the internet.
+- **Find a sale** (`#/receipts`, or type a receipt number into ⌘K): by receipt
+  number however it's read out (`TXN-T2-0451`, `T2 451`, `#451`), MoMo
+  reference or sale id, with its lines, payment, void and refunds, drawer, till
+  and when the cloud received it. When nothing matches in a chosen shop, it
+  shows the newest receipt the cloud holds from each till and how many sales
+  each still has to send. Every search is in the activity log.
+- **Phones** (`#/phones`): every install of the phone app — who last used it,
+  its build and over-the-air update. Phones check in on sign-in and when they
+  come to the front (at most every six hours, at once after an update). Their
+  JavaScript errors go into App problems as device `phone:<install>`.
+- **Cloud** (`#/cloud`): the server itself — disk, database size and largest
+  tables, migrations, nightly dumps and whether they've left the box, image
+  tag, memory, certificate. The disk filling (`cloud.disk_low`), no dump in 36
+  hours (`cloud.backup_stale`) and no copy off the box in 8 days
+  (`cloud.backup_onbox`) raise alerts. It needs the backups folder mounted
+  read-only (`CLOUD_BACKUP_DIR`, see `server/docker-compose.yml`), and whatever
+  copies dumps off the box should `touch backups/.offsite` after each copy.
+
 ## A shop's inventory
 
 A shop's **Stock** tab is its inventory, not its machines: what the catalogue

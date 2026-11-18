@@ -1,9 +1,12 @@
+import { useState } from 'react'
+import * as api from '../api/endpoints.ts'
 import type { Shop as ShopRow } from '../api/types.ts'
 import { TillsTable } from '../components/TillsTable.tsx'
-import { Card, Empty, ErrorNote, Live, Loadable, PageHeader, Skeleton } from '../components/ui.tsx'
-import { useAssistantOn, useDevices, useShops } from '../data.ts'
+import { Card, Empty, ErrorNote, Live, Loadable, PageHeader, Skeleton, When } from '../components/ui.tsx'
+import { useApi, useAssistantOn, useDevices, useShops } from '../data.ts'
 import { date, exact, until } from '../lib/format.ts'
-import { href } from '../lib/router.ts'
+import { helpHref, href, receiptsHref } from '../lib/router.ts'
+import { Phones } from './Phones.tsx'
 import { Inventory } from './shop/Inventory.tsx'
 import { ShopAssistant } from './shop/ShopAssistant.tsx'
 import { Edition, Machines, ShopActions } from './shop/ShopTools.tsx'
@@ -98,6 +101,11 @@ export function Shop({ id, params }: { id: string; params: URLSearchParams }) {
             <Machines machines={shop.machines} shopId={shop.id} />
             <About shop={shop} />
           </div>
+          <div className="grid-2">
+            <ShopHelp shopId={shop.id} />
+            <FindSale shopId={shop.id} />
+          </div>
+          <Phones shopId={shop.id} />
         </>
       )}
       {tab === 'stock' && <Inventory shop={shop} />}
@@ -164,6 +172,77 @@ function About({ shop }: { shop: ShopRow }) {
           <dd title={exact(shop.createdAt)}>{date(shop.createdAt)}</dd>
         </div>
       </dl>
+    </Card>
+  )
+}
+
+/** What this shop has asked us lately, waiting first. */
+function ShopHelp({ shopId }: { shopId: string }) {
+  const q = useApi(`help:shop:${shopId}`, (c, s) => api.helpRequests(c, { status: 'all', shopId }, s), { every: 60_000 })
+  return (
+    <Card
+      title="Help requests"
+      sub={q.data?.counts.open ? `${q.data.counts.open} waiting on us` : 'Sent from their till or phone'}
+      actions={
+        <a className="btn sm ghost" href={href('/help', { shopId, status: 'all' })}>
+          All
+        </a>
+      }
+      flush
+    >
+      <Loadable q={q} rows={3}>
+        {({ requests }) =>
+          requests.length === 0 ? (
+            <Empty title="They haven’t asked for help from the app" />
+          ) : (
+            <ul className="list">
+              {requests.slice(0, 5).map((r) => (
+                <li key={r.id} className="row" style={{ padding: '8px 16px', gap: 10, alignItems: 'flex-start' }}>
+                  <span className={`badge ${r.status === 'open' ? 'attention' : r.status === 'answered' ? 'healthy' : 'neutral'}`} style={{ flex: 'none' }}>
+                    {r.status === 'open' ? 'Waiting' : r.status === 'answered' ? 'Answered' : 'Closed'}
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <a href={helpHref(r.id)} style={{ overflowWrap: 'anywhere' }}>
+                      {r.message.length > 90 ? `${r.message.slice(0, 87)}…` : r.message}
+                    </a>
+                    <div className="small muted">
+                      {r.requesterName ?? 'Someone'} · <When iso={r.createdAt} />
+                    </div>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      </Loadable>
+    </Card>
+  )
+}
+
+/** A receipt number read out on the phone, looked up in this shop only. */
+function FindSale({ shopId }: { shopId: string }) {
+  const [text, setText] = useState('')
+  return (
+    <Card title="Find a sale" sub="Receipt number or MoMo reference, in this shop only.">
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (text.trim()) location.hash = receiptsHref(text.trim(), shopId)
+        }}
+      >
+        <input
+          className="input"
+          aria-label="Receipt number or MoMo reference"
+          placeholder="e.g. T2 451"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          style={{ flex: 1 }}
+        />
+        <button className="btn" disabled={!text.trim()}>
+          Find
+        </button>
+      </form>
     </Card>
   )
 }

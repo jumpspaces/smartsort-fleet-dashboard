@@ -166,6 +166,8 @@ export interface Overview {
   versions: { version: string; count: number }[]
   openErrorGroups: number
   openAlerts: number
+  /** Help requests nobody has replied to. Absent from an older server. */
+  openHelpRequests?: number
   unverifiedDevices: number
   windowHours: number
   release: {
@@ -1320,4 +1322,217 @@ export interface SubscriptionRow {
   every: 'month' | 'year' | null
   paidUntil: string | null
   lastRemindedAt: string | null
+}
+
+/* ------------------------------------------------------------ support ---- */
+
+export interface ShopOwnerAccount {
+  id: string
+  name: string
+  staffId: string
+  active: boolean
+}
+
+/** A shop's owner reset codes, as the console may see them (never the code). */
+export interface OwnerResetView {
+  owners: ShopOwnerAccount[]
+  live: { userId: string; expiresAt: string; issuedByLabel: string | null; createdAt: string } | null
+  lastUsed: { userId: string; usedAt: string; issuedByLabel: string | null } | null
+}
+
+export interface OwnerResetIssued {
+  code: string
+  expiresAt: string
+  owner: ShopOwnerAccount
+}
+
+export interface FoundSaleLine {
+  name: string
+  qty: number
+  soldBy: string | null
+  unitPrice: number
+  lineTotal: number
+  discount: number
+  options: string | null
+}
+
+export interface FoundSale {
+  id: string
+  shopId: string
+  shopName: string
+  shopCode: string | null
+  currency: string
+  receipt: string
+  terminalCode: string | null
+  receiptNumber: number
+  createdAt: string
+  receivedAt: string | null
+  total: number
+  paymentType: string
+  cashAmount: number
+  momoAmount: number
+  momoRef: string | null
+  momoNetwork: string | null
+  creditAmount: number
+  discount: number
+  cashier: string | null
+  lines: FoundSaleLine[]
+  voided: { at: string; reason: string | null; by: string | null } | null
+  returns: { at: string; refundTotal: number; method: string; reason: string | null }[]
+  drawer: { id: string; openedAt: string; closedAt: string | null; cashier: string | null } | null
+  till: { deviceId: string; name: string | null; lastReportAt: string | null; syncPending: number | null; lastSyncAt: string | null } | null
+}
+
+export interface TillHint {
+  terminalCode: string
+  deviceId: string
+  name: string | null
+  removed: boolean
+  highestReceipt: number | null
+  highestReceiptAt: string | null
+  lastReportAt: string | null
+  syncPending: number | null
+  syncFailed: number | null
+  lastSyncAt: string | null
+}
+
+export interface ReceiptSearch {
+  query: { terminalCode: string | null; number: number } | null
+  sales: FoundSale[]
+  tills: TillHint[] | null
+}
+
+export type HelpStatus = 'open' | 'answered' | 'closed'
+
+export interface HelpRequest {
+  id: string
+  shopId: string
+  shopName: string | null
+  shopCode: string | null
+  deviceId: string | null
+  requesterName: string | null
+  requesterRole: string | null
+  source: 'till' | 'phone'
+  message: string
+  callbackPhone: string | null
+  screen: string | null
+  status: HelpStatus
+  reply: string | null
+  repliedAt: string | null
+  repliedByLabel: string | null
+  closedAt: string | null
+  closedByLabel: string | null
+  createdAt: string
+}
+
+export interface HelpSnapshot {
+  terminalCode: string | null
+  appVersion: string | null
+  lastReportAt: string | null
+  serverHealthy: boolean | null
+  syncPending: number | null
+  syncFailed: number | null
+  lastSyncAt: string | null
+  lastPulledAt: string | null
+  diskFreeBytes: number | null
+  lastBackupAt: string | null
+  locked: boolean
+}
+
+export interface HelpRequestDetail extends HelpRequest {
+  tillName: string | null
+  snapshot: HelpSnapshot | null
+  logs: { id: string; state: string; ok: boolean | null; result: string | null; error: string | null; completedAt: string | null } | null
+  logsNote: string | null
+  /** After a reply: whether it reached the owner's phone too. */
+  pushed?: boolean
+}
+
+export interface HelpList {
+  requests: HelpRequest[]
+  counts: Partial<Record<HelpStatus, number>>
+}
+
+export interface Phone {
+  installId: string
+  shopId: string
+  shopName: string | null
+  userName: string | null
+  userRole: string | null
+  platform: string | null
+  osVersion: string | null
+  model: string | null
+  appVersion: string | null
+  buildNumber: string | null
+  runtimeVersion: string | null
+  updateId: string | null
+  updateCreatedAt: string | null
+  channel: string | null
+  embedded: boolean | null
+  firstSeenAt: string
+  lastSeenAt: string
+  /** Occurrences in the window, and how many different faults. */
+  errors: number
+  errorKinds: number
+}
+
+export interface PhoneVersion {
+  appVersion: string | null
+  updateId: string | null
+  updateCreatedAt: string | null
+  channel: string | null
+  count: number
+  errors: number
+}
+
+export interface PhoneList {
+  phones: Phone[]
+  versions: PhoneVersion[]
+  days: number
+}
+
+export interface PhoneError {
+  id: string
+  fingerprint: string
+  message: string
+  stack: string | null
+  appVersion: string | null
+  count: number
+  firstSeen: string
+  lastSeen: string
+}
+
+export type CloudLevel = 'ok' | 'warning' | 'critical'
+
+export interface CloudWarning {
+  key: string
+  level: Exclude<CloudLevel, 'ok'>
+  title: string
+  detail: string
+}
+
+export interface CloudHealth {
+  checkedAt: string
+  server: { imageTag: string | null; node: string; startedAt: string; rssBytes: number; lastAlertPassAt: string | null }
+  disk: { path: string; freeBytes: number; totalBytes: number } | null
+  diskLevel: CloudLevel
+  runway: { bytesPerDay: number | null; fullInDays: number | null }
+  database: {
+    bytes: number
+    version: string | null
+    connections: number
+    maxConnections: number
+    largest: { name: string; bytes: number; rows: number }[]
+    migrations: { applied: number; shipped: number | null; lastAppliedAt: string | null }
+  }
+  backups: {
+    visible: boolean
+    dir: string | null
+    files: { name: string; bytes: number; modifiedAt: string }[]
+    newestAt: string | null
+    offsiteAt: string | null
+  }
+  cert: { host: string; validTo: string | null; error: string | null } | null
+  history: { day: string; dbBytes: number | null; diskFreeBytes: number | null; diskTotalBytes: number | null }[]
+  warnings: CloudWarning[]
 }

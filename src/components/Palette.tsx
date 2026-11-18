@@ -4,25 +4,30 @@ import { useApi, useShops } from '../data.ts'
 import { rank } from '../lib/match.ts'
 import { tillName } from '../lib/plain.ts'
 import { useDebounced } from '../lib/query.ts'
-import { href, shopHref, tillHref } from '../lib/router.ts'
+import { looksLikeReceipt } from '../lib/receipt.ts'
+import { href, receiptsHref, shopHref, tillHref } from '../lib/router.ts'
 
 export const PAGES: { label: string; path: string; params?: Record<string, string> }[] = [
   { label: 'Home', path: '/' },
   { label: 'Alerts', path: '/alerts' },
+  { label: 'Help requests', path: '/help' },
   { label: 'Tills', path: '/tills' },
   { label: 'Tills — offline', path: '/tills', params: { state: 'offline' } },
   { label: 'Tills — need a look', path: '/tills', params: { state: 'attention' } },
+  { label: 'Phones', path: '/phones' },
   { label: 'Shops', path: '/shops' },
   { label: 'Accounts — going quiet', path: '/accounts' },
   { label: 'Accounts — setting up', path: '/accounts', params: { tab: 'setup' } },
   { label: 'Accounts — subscriptions', path: '/accounts', params: { tab: 'subscriptions' } },
   { label: 'Accounts — follow-ups', path: '/accounts', params: { tab: 'follow-ups' } },
   { label: 'Calendar', path: '/calendar' },
+  { label: 'Find a sale', path: '/receipts' },
   { label: 'App problems', path: '/problems' },
   { label: 'Remote fixes', path: '/fixes' },
   { label: 'Updates', path: '/updates' },
   { label: 'History', path: '/history' },
   { label: 'Backups', path: '/backups' },
+  { label: 'Cloud', path: '/cloud' },
   { label: 'Records check', path: '/records' },
   { label: 'Activity log', path: '/activity' },
   { label: 'Settings — team', path: '/settings' },
@@ -85,7 +90,9 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
       kind: 'Till',
       to: tillHref(d.deviceId),
     }))
-    return [...pages, ...shopHits, ...tillHits]
+    // A receipt number goes straight to finding the sale.
+    const sale = looksLikeReceipt(term) ? [{ key: `r:${term}`, label: `Find sale ${term}`, kind: 'Sale', to: receiptsHref(term) }] : []
+    return [...sale, ...pages, ...shopHits, ...tillHits]
   }, [q, dq, shops.data, tills.data])
 
   const go = (h: Hit | undefined) => {

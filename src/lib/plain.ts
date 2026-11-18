@@ -101,6 +101,22 @@ const RULES: Record<string, Plain> = {
     title: 'An update stopped itself',
     hint: 'Something went wrong on the first tills to get it.',
   },
+  'help.requested': {
+    title: 'A shop asked for help',
+    hint: 'Someone sent a help request from the till or the phone app. Reply from Help requests.',
+  },
+  'cloud.disk_low': {
+    title: "The cloud server's disk is filling",
+    hint: `When it fills, every shop stops syncing. ${DEV}`,
+  },
+  'cloud.backup_stale': {
+    title: "Last night's database backup didn't run",
+    hint: `Check the backup job on the cloud server. ${DEV}`,
+  },
+  'cloud.backup_onbox': {
+    title: "The database backups haven't left the server",
+    hint: 'Losing the server would lose the backups too. Copy them off and mark the copy (Cloud page).',
+  },
 }
 
 const UNKNOWN: Plain = { title: 'Needs a look', hint: 'Open it to see what the till reported.' }

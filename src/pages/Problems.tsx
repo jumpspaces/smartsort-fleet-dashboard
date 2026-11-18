@@ -278,9 +278,14 @@ export function Problem({ fingerprint }: { fingerprint: string }) {
                           {list.map((d) => (
                             <tr key={d.deviceId}>
                               <td className="primary-cell">
-                                <a href={tillHref(d.deviceId)} className="mono">
-                                  {d.deviceId.slice(0, 12)}
-                                </a>
+                                {d.deviceId.startsWith('phone:') ? (
+                                  // The phone app files its errors as "phone:<install>".
+                                  <a href={href('/phones', { shopId: d.shopId ?? undefined })}>Phone app</a>
+                                ) : (
+                                  <a href={tillHref(d.deviceId)} className="mono">
+                                    {d.deviceId.slice(0, 12)}
+                                  </a>
+                                )}
                               </td>
                               <td>
                                 {d.shopId ? (

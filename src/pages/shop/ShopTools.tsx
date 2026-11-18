@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react'
 import * as api from '../../api/endpoints.ts'
-import { BUSINESS_TYPE_LABELS, BUSINESS_TYPES, type BusinessType, type Shop, type ShopMachine } from '../../api/types.ts'
+import { BUSINESS_TYPE_LABELS, BUSINESS_TYPES, type BusinessType, type OwnerResetIssued, type Shop, type ShopMachine } from '../../api/types.ts'
 import { ActionError, CodeReveal, ConfirmButton, Dialog, Field, Toggle } from '../../components/forms.tsx'
 import { Card, Empty, Loadable, When } from '../../components/ui.tsx'
 import { StepUpDialog } from '../../components/StepUpDialog.tsx'
@@ -39,9 +39,28 @@ export function ShopActions({ shop }: { shop: Shop }) {
       note: 'Attaches one more machine to this shop. It sets no password and signs nobody in.',
     })
   })
+  const [resetting, setResetting] = useState(false)
   if (!canAct) return null
   return (
     <>
+      {shop.activated && (
+        <button className="btn sm" onClick={() => setResetting(true)} title="For an owner who has lost both their password and their recovery answer">
+          Owner locked out
+        </button>
+      )}
+      <OwnerResetDialog
+        open={resetting}
+        shop={shop}
+        onClose={() => setResetting(false)}
+        onIssued={(r) =>
+          setCode({
+            label: 'Owner reset code',
+            code: r.code,
+            expiresAt: r.expiresAt,
+            note: `Read it to ${r.owner.name} (staff ID ${r.owner.staffId}). On the till or in the phone app they tap Forgot password → “I have a code from JumpSpaces”, type it, and choose a new password. It works once, and signs them out everywhere.`,
+          })
+        }
+      />
       {!shop.activated && (
         <button className="btn sm primary" disabled={claim.pending} onClick={() => void claim.run()}>
           New setup code
@@ -68,6 +87,79 @@ export function ShopActions({ shop }: { shop: Shop }) {
       </Dialog>
       <MuteDialog open={muting} onClose={() => setMuting(false)} target={{ scope: 'shop', shopId: shop.id }} name={shop.name} />
     </>
+  )
+}
+
+/**
+ * An owner who has lost both their password and their recovery answer. The
+ * code lets them choose a new password themselves — we never set or learn it.
+ * It takes your password again: a reset code is a way into a shop.
+ */
+function OwnerResetDialog({
+  open,
+  shop,
+  onClose,
+  onIssued,
+}: {
+  open: boolean
+  shop: Shop
+  onClose: () => void
+  onIssued: (r: OwnerResetIssued) => void
+}) {
+  const { client } = useSession()
+  const view = useApi(`ownerReset:${shop.id}`, (c, s) => api.ownerReset(c, shop.id, s), { enabled: open })
+  const [userId, setUserId] = useState('')
+  const owners = (view.data?.owners ?? []).filter((o) => o.active)
+  const live = view.data?.live
+  const cancel = useAction(async () => {
+    await api.cancelOwnerReset(client, shop.id)
+    invalidate('ownerReset')
+  })
+  return (
+    <StepUpDialog
+      open={open}
+      title="Owner reset code"
+      confirm="Make the code"
+      hint="Asked again because the code is a way into this shop."
+      onClose={onClose}
+      onConfirm={async (password) => {
+        const r = await api.issueOwnerReset(client, shop.id, { password, userId: userId || owners[0]?.id })
+        invalidate('ownerReset')
+        onIssued(r)
+      }}
+    >
+      <p className="small" style={{ margin: 0 }}>
+        For an owner who has lost both their password and their recovery answer. Check it’s really them first — call back on the number we have for the shop.
+        The code lasts two hours and works once; any earlier code stops working.
+      </p>
+      {owners.length > 1 && (
+        <Field label="Whose password" id="reset-owner">
+          <select id="reset-owner" className="select" value={userId || owners[0]!.id} onChange={(e) => setUserId(e.target.value)}>
+            {owners.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name} (staff ID {o.staffId})
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {live && (
+        <div className="notice" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1 }} className="small">
+            A code {live.issuedByLabel ? `from ${live.issuedByLabel} ` : ''}is still waiting — it runs out {until(live.expiresAt)}.
+          </span>
+          <button type="button" className="btn sm" disabled={cancel.pending} onClick={() => void cancel.run()}>
+            Cancel it
+          </button>
+        </div>
+      )}
+      {view.data?.lastUsed && !live && (
+        <div className="small muted">
+          Last code used <When iso={view.data.lastUsed.usedAt} />.
+        </div>
+      )}
+      <ActionError error={cancel.error ?? view.error ?? null} />
+    </StepUpDialog>
   )
 }
 

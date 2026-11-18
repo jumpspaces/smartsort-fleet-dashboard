@@ -29,6 +29,10 @@ import { Settings } from './pages/Settings.tsx'
 import { Accounts } from './pages/Accounts.tsx'
 import { Calendar } from './pages/Calendar.tsx'
 import { Update, Updates } from './pages/Updates.tsx'
+import { Help, HelpRequestPage } from './pages/Help.tsx'
+import { Receipts } from './pages/Receipts.tsx'
+import { Phones } from './pages/Phones.tsx'
+import { Cloud } from './pages/Cloud.tsx'
 
 export function App() {
   const [session, setSession] = useState<Session | null>(loadSession)
@@ -73,7 +77,9 @@ const NAV: { group: string | null; items: Nav[] }[] = [
     items: [
       { page: 'home', path: '/', label: 'Home', icon: 'home' },
       { page: 'alerts', path: '/alerts', label: 'Alerts', icon: 'bell' },
+      { page: 'help', path: '/help', label: 'Help requests', icon: 'help', also: 'helpRequest' },
       { page: 'tills', path: '/tills', label: 'Tills', icon: 'till', also: 'till' },
+      { page: 'phones', path: '/phones', label: 'Phones', icon: 'phone' },
       { page: 'shops', path: '/shops', label: 'Shops', icon: 'shop', also: 'shop' },
       { page: 'accounts', path: '/accounts', label: 'Accounts', icon: 'people' },
       { page: 'calendar', path: '/calendar', label: 'Calendar', icon: 'calendar' },
@@ -82,6 +88,7 @@ const NAV: { group: string | null; items: Nav[] }[] = [
   {
     group: 'Fixing',
     items: [
+      { page: 'receipts', path: '/receipts', label: 'Find a sale', icon: 'receipt' },
       { page: 'problems', path: '/problems', label: 'App problems', icon: 'bug', also: 'problem' },
       { page: 'fixes', path: '/fixes', label: 'Remote fixes', icon: 'wrench' },
       { page: 'updates', path: '/updates', label: 'Updates', icon: 'upload', also: 'update' },
@@ -92,6 +99,7 @@ const NAV: { group: string | null; items: Nav[] }[] = [
     items: [
       { page: 'history', path: '/history', label: 'History', icon: 'chart' },
       { page: 'backups', path: '/backups', label: 'Backups', icon: 'disk' },
+      { page: 'cloud', path: '/cloud', label: 'Cloud', icon: 'cloud' },
       { page: 'records', path: '/records', label: 'Records check', icon: 'check' },
       { page: 'activity', path: '/activity', label: 'Activity log', icon: 'list' },
     ],
@@ -137,6 +145,7 @@ function Shell() {
   const overview = useOverview()
   const openAlerts = overview.data?.openAlerts ?? 0
   const openProblems = overview.data?.openErrorGroups ?? 0
+  const openHelp = overview.data?.openHelpRequests ?? 0
   const alerts = useAlerts('open')
   const [notifyOn, toggleNotify] = useNotifyPref()
   useAlertNotifications(alerts.data, notifyOn)
@@ -171,6 +180,7 @@ function Shell() {
                 <span className="nav-label-text">{n.label}</span>
                 {n.page === 'alerts' && openAlerts > 0 && <span className="nav-count">{openAlerts}</span>}
                 {n.page === 'problems' && openProblems > 0 && <span className="nav-count quiet">{openProblems}</span>}
+                {n.page === 'help' && openHelp > 0 && <span className="nav-count">{openHelp}</span>}
               </a>
             ))}
           </div>
@@ -270,6 +280,16 @@ function Page({ route, params }: { route: Route; params: URLSearchParams }) {
       return <Accounts params={params} />
     case 'calendar':
       return <Calendar />
+    case 'help':
+      return <Help params={params} />
+    case 'helpRequest':
+      return <HelpRequestPage id={route.id} />
+    case 'receipts':
+      return <Receipts params={params} />
+    case 'phones':
+      return <Phones params={params} />
+    case 'cloud':
+      return <Cloud />
     default:
       return (
         <div className="card empty">

@@ -88,6 +88,15 @@ import type {
   Trends,
   VersionScore,
   WorstOffender,
+  CloudHealth,
+  HelpList,
+  HelpRequestDetail,
+  HelpStatus,
+  OwnerResetIssued,
+  OwnerResetView,
+  PhoneError,
+  PhoneList,
+  ReceiptSearch,
 } from './types.ts'
 
 /** Query string from params, dropping blanks and the "all" sentinel. */
@@ -548,3 +557,32 @@ export const recordShopPayment = (
 export const remindShopOwner = (c: Client, shopId: string) => c.post(shopPath(shopId, '/subscription/remind'), {})
 export const monthlyReport = (c: Client, shopId: string, month: string) =>
   c.download(shopPath(shopId, `/monthly-report?month=${enc(month)}`), `report-${month}.pdf`)
+
+/* ---------------------------------------------------------------- support */
+
+/** An owner locked out of their shop: who the owners are, and any code still waiting. */
+export const ownerReset = (c: Client, shopId: string, signal?: AbortSignal) =>
+  c.get<OwnerResetView>(shopPath(shopId, '/owner-reset'), signal)
+/** A one-time code the owner types with a new password. Takes the operator's password. */
+export const issueOwnerReset = (c: Client, shopId: string, input: { password: string; userId?: string }) =>
+  c.post<OwnerResetIssued>(shopPath(shopId, '/owner-reset'), input)
+export const cancelOwnerReset = (c: Client, shopId: string) => c.del<OwnerResetView>(shopPath(shopId, '/owner-reset'))
+
+/** A sale by receipt number, sale id or MoMo reference. */
+export const findReceipts = (c: Client, q: string, shopId: string | undefined, signal?: AbortSignal) =>
+  c.get<ReceiptSearch>(`/fleet/receipts${qs({ q, shopId })}`, signal)
+
+export const helpRequests = (c: Client, q: { status?: HelpStatus | 'all'; shopId?: string }, signal?: AbortSignal) =>
+  c.get<HelpList>(`/fleet/help${qs({ status: q.status, shopId: q.shopId })}`, signal)
+export const helpRequest = (c: Client, id: string, signal?: AbortSignal) => c.get<HelpRequestDetail>(`/fleet/help/${enc(id)}`, signal)
+export const replyToHelp = (c: Client, id: string, reply: string) =>
+  c.post<HelpRequestDetail>(`/fleet/help/${enc(id)}/reply`, { reply })
+export const setHelpStatus = (c: Client, id: string, status: 'open' | 'closed') =>
+  c.post<HelpRequestDetail>(`/fleet/help/${enc(id)}/status`, { status })
+
+export const phones = (c: Client, q: { shopId?: string; days?: number }, signal?: AbortSignal) =>
+  c.get<PhoneList>(`/fleet/phones${qs({ shopId: q.shopId, days: q.days })}`, signal)
+export const phoneErrors = (c: Client, installId: string, signal?: AbortSignal) =>
+  c.get<{ errors: PhoneError[] }>(`/fleet/phones/${enc(installId)}/errors`, signal)
+
+export const cloudHealth = (c: Client, signal?: AbortSignal) => c.get<CloudHealth>('/fleet/cloud', signal)
