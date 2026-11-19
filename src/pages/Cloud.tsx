@@ -1,11 +1,14 @@
 import { useState, type ReactNode } from 'react'
 import * as api from '../api/endpoints.ts'
-import type { CloudBootKind, CloudDependency, CloudHealth, CloudRoute, SettingLevel, SettingState } from '../api/types.ts'
+import type { CloudBootKind, CloudCrashes, CloudDependency, CloudHealth, CloudRoute, CloudSpace, SettingLevel, SettingState } from '../api/types.ts'
 import { Bars } from '../components/Bars.tsx'
-import { Card, Empty, Live, Loadable, PageHeader, Segmented, When } from '../components/ui.tsx'
+import { StepUpDialog } from '../components/StepUpDialog.tsx'
+import { Card, Empty, ErrorNote, Live, Loadable, PageHeader, Segmented, When } from '../components/ui.tsx'
 import { useApi } from '../data.ts'
 import { bytes, count, date, duration, exact } from '../lib/format.ts'
-import { href } from '../lib/router.ts'
+import { invalidate, useAction } from '../lib/query.ts'
+import { href, problemHref } from '../lib/router.ts'
+import { useSession } from '../lib/session.tsx'
 
 const LEVEL_TONE = { ok: 'healthy', warning: 'attention', critical: 'offline' } as const
 const LEVEL_WORD = { ok: 'Fine', warning: 'Needs a look', critical: 'Act now' } as const
@@ -13,14 +16,22 @@ const LEVEL_WORD = { ok: 'Fine', warning: 'Needs a look', critical: 'Act now' } 
 const KV = { margin: 0, gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' } as const
 const GRID = { display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' } as const
 
-const TABS = ['overview', 'requests', 'database', 'deploys', 'settings'] as const
+const TABS = ['overview', 'requests', 'database', 'deploys', 'cleanup', 'settings'] as const
 type Tab = (typeof TABS)[number]
 const TAB_LABEL: Record<Tab, string> = {
   overview: 'Overview',
   requests: 'Requests',
   database: 'Database',
   deploys: 'Deploys',
+  cleanup: 'Clean up',
   settings: 'Settings',
+}
+/** Warnings the Clean up tab can do something about. */
+const WARNING_FIX: Record<string, string> = {
+  'cloud.restarts': 'Clear',
+  'cloud.errors_spike': 'Clear',
+  'cloud.disk_low': 'Free space',
+  'cloud.disk_runway': 'Free space',
 }
 
 /**
@@ -49,6 +60,7 @@ export function Cloud({ params }: { params: URLSearchParams }) {
       {tab === 'requests' && <Requests />}
       {tab === 'database' && <Database />}
       {tab === 'deploys' && <Deploys />}
+      {tab === 'cleanup' && <CleanUp />}
       {tab === 'settings' && <Settings />}
     </div>
   )
@@ -102,10 +114,15 @@ function Warnings({ h }: { h: CloudHealth }) {
             <span className={`badge ${LEVEL_TONE[w.level]}`} style={{ flex: 'none' }}>
               {LEVEL_WORD[w.level]}
             </span>
-            <span style={{ minWidth: 0 }}>
+            <span style={{ minWidth: 0, flex: 1 }}>
               <strong>{w.title}</strong>
               <div className="small muted">{w.detail}</div>
             </span>
+            {WARNING_FIX[w.key] && (
+              <a className="btn sm ghost" style={{ flex: 'none' }} href={href('/cloud', { tab: 'cleanup' })}>
+                {WARNING_FIX[w.key]}
+              </a>
+            )}
           </li>
         ))}
       </ul>
@@ -132,7 +149,17 @@ function Meter({ used, total, label }: { used: number; total: number; label: str
 function Disk({ h }: { h: CloudHealth }) {
   const d = h.disk
   return (
-    <Card title="Disk" actions={<span className={`badge ${LEVEL_TONE[h.diskLevel]}`}>{LEVEL_WORD[h.diskLevel]}</span>}>
+    <Card
+      title="Disk"
+      actions={
+        <>
+          <span className={`badge ${LEVEL_TONE[h.diskLevel]}`}>{LEVEL_WORD[h.diskLevel]}</span>
+          <a className="btn sm ghost" href={href('/cloud', { tab: 'cleanup' })}>
+            Free space
+          </a>
+        </>
+      }
+    >
       {!d ? (
         <Empty title="Couldn’t read the disk" />
       ) : (
@@ -766,6 +793,12 @@ function Deploys() {
                       </td>
                       <td>
                         <span className={`badge ${KIND[b.kind].tone}`}>{KIND[b.kind].label}</span>
+                        {b.kind === 'restart' && b.clearedAt && (
+                          <span className="small muted" title={`Cleared ${exact(b.clearedAt)}`}>
+                            {' '}
+                            cleared
+                          </span>
+                        )}
                       </td>
                       <td className="mono small">{b.imageTag ? <ImageLink tag={b.imageTag} /> : '—'}</td>
                       <td className="mono small">{b.from ? <ImageLink tag={b.from} /> : '—'}</td>
@@ -779,6 +812,338 @@ function Deploys() {
         }
       </Loadable>
     </Card>
+  )
+}
+
+/* -------------------------------------------------------------- clean up -- */
+
+function CleanUp() {
+  const [fast, setFast] = useState(false)
+  // Every few seconds while a request waits on the helper, which runs each minute.
+  const q = useApi('cloud:cleanup', (c, s) => api.cloudCleanup(c, s), { every: fast ? 5_000 : 60_000 })
+  const waiting = !!q.data?.space.waiting
+  if (waiting !== fast) setFast(waiting)
+  return (
+    <Loadable q={q} rows={8}>
+      {({ crashes, space }) => (
+        <>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <Live updatedAt={q.updatedAt} busy={q.refreshing} />
+          </div>
+          <Crashes c={crashes} />
+          <Space s={space} />
+        </>
+      )}
+    </Loadable>
+  )
+}
+
+function Crashes({ c }: { c: CloudCrashes }) {
+  const { client, canAct } = useSession()
+  const [done, setDone] = useState<string | null>(null)
+  const act = useAction(async () => {
+    const r = await api.clearCloudCrashes(client)
+    setDone(
+      r.starts || r.errors
+        ? `Cleared ${r.starts} start${r.starts === 1 ? '' : 's'} and ${r.errors} error${r.errors === 1 ? '' : 's'}. Alerts close at the next check, within a minute.`
+        : 'Nothing was waiting to be cleared.',
+    )
+    invalidate('cloud')
+  })
+  const anything = c.restarts.count > 0 || c.startsLastHour > 0 || c.errors.open > 0 || !!c.spike
+  return (
+    <Card
+      title="Crashes"
+      sub="What says the server is falling over: restarts of the same image, and its own errors. Clearing marks them seen — the starts stay on Deploys and the errors in App problems, and any that happens again comes back."
+      actions={
+        canAct ? (
+          <button className="btn sm primary" disabled={!anything || act.pending} onClick={() => void act.run()}>
+            {act.pending ? 'Clearing…' : 'Clear crashes'}
+          </button>
+        ) : undefined
+      }
+    >
+      <div className="stack" style={{ gap: 12 }}>
+        <dl className="kv" style={KV}>
+          <div>
+            <dt>Restarts, last 7 days</dt>
+            <dd className={c.restarts.count ? 'num warn' : 'num'}>
+              {count(c.restarts.count)}
+              {c.restarts.lastAt && (
+                <div className="small muted">
+                  last <When iso={c.restarts.lastAt} />
+                </div>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Starts this hour</dt>
+            <dd className={c.startsLastHour >= 3 ? 'num warn' : 'num'}>
+              {count(c.startsLastHour)}
+              {c.startsLastHour >= 3 && <div className="small muted">A crash loop</div>}
+            </dd>
+          </div>
+          <div>
+            <dt>Its errors, open</dt>
+            <dd className={c.errors.open ? 'num warn' : 'num'}>
+              {count(c.errors.open)}
+              {c.errors.open > 0 && <div className="small muted">{count(c.errors.occurrences)} times</div>}
+            </dd>
+          </div>
+          <div>
+            <dt>Last 15 minutes</dt>
+            <dd className={c.spike ? 'num warn' : 'num'}>{c.spike ? `${count(c.spike.serverErrors)} of ${count(c.spike.requests)} failed` : 'No burst'}</dd>
+          </div>
+          <div>
+            <dt>Last cleared</dt>
+            <dd>
+              {c.lastCleared ? (
+                <>
+                  <When iso={c.lastCleared.at} />
+                  {c.lastCleared.by && <div className="small muted">by {c.lastCleared.by}</div>}
+                </>
+              ) : (
+                'Never'
+              )}
+            </dd>
+          </div>
+        </dl>
+        {c.errors.groups.length > 0 && (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Error</th>
+                  <th className="r">Times</th>
+                  <th>Last</th>
+                </tr>
+              </thead>
+              <tbody>
+                {c.errors.groups.map((g) => (
+                  <tr key={g.fingerprint}>
+                    <td className="small" style={{ overflowWrap: 'anywhere' }}>
+                      <a href={problemHref(g.fingerprint)}>{g.message}</a>
+                      {g.cameBack && (
+                        <>
+                          {' '}
+                          <span className="badge attention">Came back</span>
+                        </>
+                      )}
+                    </td>
+                    <td className="r num">{count(g.count)}</td>
+                    <td className="small nowrap">
+                      <When iso={g.lastSeenAt} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {act.error && <ErrorNote error={act.error} />}
+        {done && <div className="notice info">{done}</div>}
+        <div className="small muted">The crash output itself is in the server’s log on the droplet — empty it with Container logs below.</div>
+      </div>
+    </Card>
+  )
+}
+
+const HELPER_NOTE: Record<Exclude<CloudSpace['helper']['state'], 'ok'>, string> = {
+  off: 'CLOUD_HOUSEKEEPING_DIR isn’t set on this server, so it can’t ask the droplet to free anything. See server/DEPLOY.md §10.',
+  missing: 'The clean-up helper has never reported from the droplet. Install its cron: server/DEPLOY.md §10.',
+  stale: 'The clean-up helper has stopped reporting. Check its cron on the droplet (server/DEPLOY.md §10).',
+}
+/** Backups are the one kind not ticked to start with. */
+const UNTICKED = new Set(['predeploy'])
+
+function Space({ s }: { s: CloudSpace }) {
+  const { client, session } = useSession()
+  const isAdmin = session.operator.role === 'admin'
+  const [picked, setPicked] = useState<Set<string> | null>(null)
+  const [asking, setAsking] = useState(false)
+  const ready = s.helper.state === 'ok'
+  const chosen = picked ?? new Set(s.items.filter((i) => (i.bytes ?? 0) > 0 && !UNTICKED.has(i.key)).map((i) => i.key))
+  const chosenBytes = s.items.filter((i) => chosen.has(i.key)).reduce((n, i) => n + (i.bytes ?? 0), 0)
+  const label = (key: string) => s.items.find((i) => i.key === key)?.label ?? key
+  const toggle = (key: string, on: boolean) => {
+    const next = new Set(chosen)
+    if (on) next.add(key)
+    else next.delete(key)
+    setPicked(next)
+  }
+  return (
+    <Card
+      title="Space you can free"
+      sub={
+        <>
+          The droplet’s clean-up helper frees these, and decides what stays: the running image, the newest dumps and screen updates always do.
+          {s.measuredAt && (
+            <>
+              {' '}
+              Measured <When iso={s.measuredAt} />
+              {s.diskFreeBytes != null && `, with ${bytes(s.diskFreeBytes)} free`}.
+            </>
+          )}
+        </>
+      }
+      flush
+    >
+      {s.helper.state !== 'ok' && (
+        // One span: .notice lays its children out side by side.
+        <div className="notice warn" style={{ margin: 16 }}>
+          <span>
+            {HELPER_NOTE[s.helper.state]}
+            {s.helper.state === 'stale' && s.helper.seenAt && (
+              <>
+                {' '}
+                Last heard <When iso={s.helper.seenAt} />.
+              </>
+            )}
+          </span>
+        </div>
+      )}
+      {s.waiting && (
+        <div className="notice info" style={{ margin: 16 }}>
+          <span>
+            {s.waiting.started ? 'The helper is freeing ' : 'Waiting for the helper, which runs every minute, to free '}
+            {s.waiting.items.map(label).join(', ').toLowerCase()} — asked <When iso={s.waiting.requestedAt} />
+            {s.waiting.by && ` by ${s.waiting.by}`}.
+          </span>
+        </div>
+      )}
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th style={{ width: 32 }} aria-label="Free" />
+              <th>What</th>
+              <th className="r">Holds</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.items.map((i) => (
+              <tr key={i.key}>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Free ${i.label}`}
+                    checked={chosen.has(i.key)}
+                    disabled={!isAdmin || !ready || !!s.waiting}
+                    onChange={(e) => toggle(i.key, e.target.checked)}
+                  />
+                </td>
+                <td>
+                  {i.label}
+                  <div className="small muted">{i.what}</div>
+                </td>
+                <td className="r num nowrap">
+                  {i.bytes == null ? (
+                    '—'
+                  ) : (
+                    <>
+                      {i.key === 'images' && i.bytes > 0 ? 'up to ' : ''}
+                      {bytes(i.bytes)}
+                      {i.bytes > 0 && i.count != null && (
+                        <div className="small muted">
+                          {count(i.count)} {i.key === 'images' ? `image${i.count === 1 ? '' : 's'}` : `file${i.count === 1 ? '' : 's'}`}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="row" style={{ padding: 16, justifyContent: 'space-between' }}>
+        {isAdmin ? (
+          <button className="btn danger-solid" disabled={!ready || !!s.waiting || chosen.size === 0} onClick={() => setAsking(true)}>
+            Free {chosenBytes > 0 ? bytes(chosenBytes) : 'space'}…
+          </button>
+        ) : (
+          <span className="small muted">Only admins can free space.</span>
+        )}
+        <span className="small muted">Shared layers mean an image can free less than its size.</span>
+      </div>
+      {s.history.length > 0 && <CleanupHistory s={s} label={label} />}
+      <StepUpDialog
+        open={asking}
+        title="Free space on the droplet"
+        confirm="Free it"
+        danger
+        hint="Asked again because what goes can’t be brought back."
+        onClose={() => setAsking(false)}
+        onConfirm={async (password) => {
+          await api.requestCloudCleanup(client, [...chosen], password)
+          setPicked(null)
+          invalidate('cloud:cleanup')
+        }}
+      >
+        <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+          {[...chosen].map((k) => (
+            <li key={k}>{label(k)}</li>
+          ))}
+        </ul>
+        <p className="small" style={{ margin: 0 }}>
+          The helper picks it up within a minute. Images and dumps go for good; the ones a rollback needs stay.
+        </p>
+      </StepUpDialog>
+    </Card>
+  )
+}
+
+function CleanupHistory({ s, label }: { s: CloudSpace; label: (key: string) => string }) {
+  return (
+    <details style={{ padding: '0 16px 16px' }}>
+      <summary className="small">Earlier clean-ups</summary>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Asked</th>
+              <th>What</th>
+              <th className="r">Freed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.history.map((h) => (
+              <tr key={h.id}>
+                <td className="nowrap small" title={exact(h.requestedAt)}>
+                  {date(h.requestedAt)}
+                  {h.by && <div className="muted">{h.by}</div>}
+                </td>
+                <td className="small">
+                  {h.state === 'expired' ? (
+                    <>
+                      <span className="badge attention">Never picked up</span> {h.items.map(label).join(', ')}
+                    </>
+                  ) : (
+                    h.items.map((k) => {
+                      const r = h.results?.[k]
+                      return (
+                        <div key={k} style={{ marginBottom: 2 }}>
+                          {label(k)}
+                          {r && r.ok && `: ${bytes(r.freedBytes)}`}
+                          {r && !r.ok && (
+                            <>
+                              {' '}
+                              <span className="badge attention">Failed</span> <span className="muted">{r.error ?? ''}</span>
+                            </>
+                          )}
+                          {!r && <span className="muted">: not done</span>}
+                        </div>
+                      )
+                    })
+                  )}
+                </td>
+                <td className="r num">{h.freedBytes == null ? '—' : bytes(h.freedBytes)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   )
 }
 

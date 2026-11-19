@@ -1579,6 +1579,55 @@ export interface CloudBoot {
   kind: CloudBootKind
   from: string | null
   ranForMs: number | null
+  /** When someone cleared the crashes it's part of; it no longer counts toward a crash loop. */
+  clearedAt?: string | null
+}
+
+/** Cloud → Clean up: the server's crashes, and the space the droplet's helper could free. */
+export interface CloudCrashes {
+  restarts: { count: number; lastAt: string | null }
+  startsLastHour: number
+  errors: {
+    open: number
+    occurrences: number
+    lastSeenAt: string | null
+    groups: { fingerprint: string; message: string; count: number; lastSeenAt: string; cameBack: boolean }[]
+  }
+  spike: { requests: number; serverErrors: number } | null
+  lastCleared: { at: string; by: string | null } | null
+}
+
+export type CleanupHelperState = 'off' | 'missing' | 'stale' | 'ok'
+
+export interface CleanupItemResult {
+  ok: boolean
+  freedBytes: number
+  count: number
+  error: string | null
+}
+
+export interface CloudSpace {
+  helper: { state: CleanupHelperState; seenAt: string | null }
+  measuredAt: string | null
+  diskFreeBytes: number | null
+  items: { key: string; label: string; what: string; bytes: number | null; count: number | null }[]
+  totalBytes: number
+  waiting: { id: string; requestedAt: string; items: string[]; by: string | null; started: boolean } | null
+  history: {
+    id: string
+    requestedAt: string
+    by: string | null
+    items: string[]
+    state: 'done' | 'expired'
+    finishedAt: string | null
+    freedBytes: number | null
+    results: Record<string, CleanupItemResult> | null
+  }[]
+}
+
+export interface CloudCleanup {
+  crashes: CloudCrashes
+  space: CloudSpace
 }
 
 export interface CloudRoute {

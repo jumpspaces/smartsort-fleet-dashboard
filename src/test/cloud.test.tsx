@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../App.tsx'
 import { clearCache } from '../lib/query.ts'
@@ -51,6 +51,34 @@ const overview = {
   requests: { day: { requests: 18_000, clientErrors: 40, serverErrors: 3 }, last15m: { requests: 190, serverErrors: 0 }, since: '2026-11-18T08:00:00Z' },
   dependencies: [{ name: 'Expo push', what: 'Notifications', health: 'failing', lastOkAt: null, lastFailAt: '2026-11-18T08:30:00Z', lastError: 'Expo answered 503.' }],
   settings: { checked: 14, problems: 2 },
+}
+
+const quiet = { restarts: { count: 0, lastAt: null }, startsLastHour: 1, errors: { open: 0, occurrences: 0, lastSeenAt: null, groups: [] }, spike: null, lastCleared: null }
+const space = {
+  helper: { state: 'ok', seenAt: new Date().toISOString() },
+  measuredAt: new Date().toISOString(),
+  diskFreeBytes: 9 * 1024 ** 3,
+  items: [
+    { key: 'images', label: 'Old server images', what: 'Earlier deploys.', bytes: 1.4 * 1024 ** 3, count: 5 },
+    { key: 'logs', label: 'Container logs', what: 'Crash output included.', bytes: 300 * 1000 ** 2, count: 3 },
+    { key: 'predeploy', label: 'Pre-deploy database dumps', what: 'The dump each deploy takes.', bytes: 800 * 1000 ** 2, count: 4 },
+    { key: 'bundles', label: 'Old screen updates', what: 'Bundles.', bytes: 0, count: 0 },
+    { key: 'system', label: 'System logs and package downloads', what: 'Journal.', bytes: 120 * 1000 ** 2, count: 9 },
+  ],
+  totalBytes: 2.62 * 1000 ** 3,
+  waiting: null,
+  history: [
+    {
+      id: 'h1',
+      requestedAt: '2026-11-17T10:00:00Z',
+      by: 'Ama',
+      items: ['images'],
+      state: 'done',
+      finishedAt: '2026-11-17T10:01:00Z',
+      freedBytes: 0,
+      results: { images: { ok: false, freedBytes: 0, count: 0, error: 'Error response from daemon: conflict: unable to remove' } },
+    },
+  ],
 }
 
 describe('the Cloud page', () => {
@@ -140,6 +168,65 @@ describe('the Cloud page', () => {
     expect(rows[0]).toContain('Edition signing key')
     expect(rows[0]).toContain('Not working')
     expect(rows[2]).toContain('Metrics token')
+  })
+
+  it('clears the crashes, and says what it cleared', async () => {
+    signedIn('operator')
+    const crashes = {
+      restarts: { count: 2, lastAt: '2026-11-18T08:40:00Z' },
+      startsLastHour: 3,
+      errors: {
+        open: 1,
+        occurrences: 14,
+        lastSeenAt: '2026-11-18T08:41:00Z',
+        groups: [{ fingerprint: 'f1', message: "TypeError: Cannot read properties of undefined — POST /api/sync/replicate", count: 14, lastSeenAt: '2026-11-18T08:41:00Z', cameBack: true }],
+      },
+      spike: { requests: 40, serverErrors: 12 },
+      lastCleared: null,
+    }
+    const { calls } = fakeServer([
+      ...shellRoutes,
+      { path: '/fleet/cloud/clean-up', reply: { crashes, space: { ...space, helper: { state: 'missing', seenAt: null }, measuredAt: null } } },
+      { path: '/fleet/cloud/crashes/clear', method: 'POST', reply: { at: '2026-11-18T09:00:00Z', starts: 3, errors: 1 } },
+    ])
+    render(<App />)
+    await go('#/cloud?tab=cleanup')
+    expect(await screen.findByText('A crash loop')).toBeTruthy()
+    expect(screen.getByText('12 of 40 failed')).toBeTruthy()
+    expect(screen.getByText('Came back')).toBeTruthy()
+    // The helper isn't there yet: said plainly, and nothing to tick.
+    expect(screen.getByText(/never reported from the droplet/)).toBeTruthy()
+    // An operator can clear crashes but not free space.
+    expect(screen.getByText('Only admins can free space.')).toBeTruthy()
+    await act(async () => screen.getByRole('button', { name: 'Clear crashes' }).click())
+    expect(await screen.findByText(/Cleared 3 starts and 1 error/)).toBeTruthy()
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/fleet/cloud/crashes/clear')).toBe(true)
+  })
+
+  it('frees space through the helper, asking for the password, and leaves the dumps unticked', async () => {
+    signedIn('admin')
+    const { calls } = fakeServer([
+      ...shellRoutes,
+      { path: '/fleet/cloud/clean-up', reply: { crashes: quiet, space } },
+      { path: '/fleet/cloud/clean-up', method: 'POST', status: 202, reply: space },
+    ])
+    render(<App />)
+    await go('#/cloud?tab=cleanup')
+    const images = (await screen.findByRole('checkbox', { name: 'Free Old server images' })) as HTMLInputElement
+    expect(images.checked).toBe(true)
+    expect((screen.getByRole('checkbox', { name: 'Free Pre-deploy database dumps' }) as HTMLInputElement).checked).toBe(false)
+    // Nothing to free in the bundles: not ticked either.
+    expect((screen.getByRole('checkbox', { name: 'Free Old screen updates' }) as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByText('up to 1.4 GB')).toBeTruthy()
+    // Last time, one kind failed: its reason is kept.
+    expect(screen.getByText(/conflict: unable to remove/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Free 1\.\d GB…$/ }))
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Free it', hidden: true }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/fleet/cloud/clean-up')).toBe(true))
+    const sent = calls.find((c) => c.method === 'POST' && c.path === '/fleet/cloud/clean-up')
+    expect(sent?.body).toEqual({ items: ['images', 'logs', 'system'], password: 'secret' })
   })
 
   it('names a transaction left open', async () => {

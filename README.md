@@ -290,7 +290,7 @@ only copy of a sale, so there is no remote command that throws one away.
   its build and over-the-air update. Phones check in on sign-in and when they
   come to the front (at most every six hours, at once after an update). Their
   JavaScript errors go into App problems as device `phone:<install>`.
-- **Cloud** (`#/cloud`): the server itself, in five tabs.
+- **Cloud** (`#/cloud`): the server itself, in six tabs.
   - *Overview*: disk (and the update-feed and uploads folders that grow by
     themselves), the machine's memory, swap and load, the nightly dumps —
     whether last night's **restored** and whether they've left the box —
@@ -301,6 +301,16 @@ only copy of a sale, so there is no remote command that throws one away.
   - *Database*: connections by state, transactions open over 30 seconds (with
     their query), lock waits, dead rows, cache hits, deadlocks.
   - *Deploys*: every start of the server — deploy, restart or rollback.
+  - *Clean up*: **Clear crashes** (operator) marks the restarts so far and
+    the server's open errors as seen — the starts stop counting toward a crash
+    loop, the errors are resolved and reopen if they recur; nothing is deleted.
+    **Space you can free** (admin, password asked again) shows what the
+    droplet's helper measured — old server images, container logs, pre-deploy
+    dumps, old screen bundles, the system journal — and asks it to free the
+    ticked kinds. The server only writes a request into `CLOUD_HOUSEKEEPING_DIR`;
+    `server/housekeeping.sh` (root's cron, DEPLOY.md §10) does the deleting and
+    decides what always stays: the running image and the last few deployed,
+    the newest dumps, the newest bundles. Nightly dumps are never touched.
   - *Settings*: whether each setting is set and working, never its value, and
     each outside service's last success and failure.
 

@@ -90,10 +90,12 @@ import type {
   WorstOffender,
   CloudHealth,
   CloudBoot,
+  CloudCleanup,
   CloudDatabase,
   CloudDependency,
   CloudRequests,
   CloudSetting,
+  CloudSpace,
   HelpList,
   HelpRequestDetail,
   HelpStatus,
@@ -596,3 +598,8 @@ export const cloudDatabase = (c: Client, signal?: AbortSignal) => c.get<CloudDat
 export const cloudDeploys = (c: Client, signal?: AbortSignal) => c.get<{ boots: CloudBoot[] }>('/fleet/cloud/deploys', signal)
 export const cloudSettings = (c: Client, signal?: AbortSignal) =>
   c.get<{ settings: CloudSetting[]; dependencies: CloudDependency[] }>('/fleet/cloud/settings', signal)
+export const cloudCleanup = (c: Client, signal?: AbortSignal) => c.get<CloudCleanup>('/fleet/cloud/clean-up', signal)
+export const clearCloudCrashes = (c: Client) => c.post<{ at: string; starts: number; errors: number }>('/fleet/cloud/crashes/clear')
+/** Asks the droplet's helper; the password is asked again because images and dumps go for good. */
+export const requestCloudCleanup = (c: Client, items: string[], password: string) =>
+  c.post<CloudSpace>('/fleet/cloud/clean-up', { items, password })
